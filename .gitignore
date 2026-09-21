@@ -10,3 +10,12 @@ __pycache__/
 .env.*
 !.env.example
 *.log
+
+# 个人开发工作流（trellis）
+.trellis/
+
+# AI 工具本地配置
+.codebuddy/
+.codex/
+.grok/
+.agents/
