@@ -1,0 +1,33 @@
+{
+  "name": "agent-companion",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run desktop:dev",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4189",
+    "test": "node --test tests/*.test.js",
+    "desktop:prepare": "node scripts/prepare-desktop.mjs",
+    "desktop:web": "vite --host 127.0.0.1 --port 4189 --strictPort",
+    "desktop:dev": "npm run desktop:prepare && tauri dev",
+    "desktop:build": "tauri build --bundles app",
+    "test:rust": "cargo test --workspace --locked && node scripts/qa-rust-parity.mjs",
+    "test:runtime": "npm run desktop:prepare && node scripts/qa-native-runtime.mjs",
+    "test:bundle": "node scripts/check-bundle.mjs",
+    "test:ui": "node scripts/qa-ui.mjs",
+    "test:native-app": "npm run desktop:build -- --features diagnostics && node scripts/qa-native-app.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-notification": "^2.4.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "playwright": "1.58.2",
+    "vite": "^7.1.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

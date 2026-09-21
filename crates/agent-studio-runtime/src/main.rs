@@ -1,0 +1,504 @@
+use agent_studio_core::{
+    adapters::{
+        codebuddy_settings_files, merge_codebuddy_ide_hooks, merge_workbuddy_hooks, workbuddy_edition,
+        workbuddy_settings_files, Collector,
+    },
+    atomic_json, now, text,
+};
+use agent_studio_runtime::{
+    arg_value, call, codebuddy_edition_from_host, endpoint, home, PROTOCOL,
+};
+use fs2::FileExt;
+use serde_json::{json, Value};
+use std::{
+    collections::{HashMap, VecDeque},
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
+fn main() {
+    let result = match std::env::args().nth(1).as_deref() {
+        Some("hook") => {
+            let mut bytes = Vec::new();
+            let _ = std::io::stdin().take(1024 * 1024).read_to_end(&mut bytes);
+            let agent = arg_value("--source").unwrap_or_else(|| "codex".into());
+            // WorkBuddy treats empty stdout as invalid JSON. Codex SessionStart
+            // treats JSON stdout as hook output. IDE and WorkBuddy accept `{}`.
+            if agent == "workbuddy" || agent == "codebuddy-ide" {
+                println!("{{}}");
+                let _ = std::io::stdout().flush();
+            }
+            if let Ok(mut p) = serde_json::from_slice::<Value>(&bytes) {
+                p["agent_source"] = json!(agent);
+                if let Some(edition) = arg_value("--edition") {
+                    p["agent_edition"] = json!(edition);
+                } else if agent == "codebuddy-ide"
+                    && p["agent_edition"].as_str().unwrap_or("").is_empty()
+                {
+                    if let Some(edition) = codebuddy_edition_from_host() {
+                        p["agent_edition"] = json!(edition);
+                    }
+                }
+                let _ = call(&home(), "hook", p);
+            }
+            Ok(())
+        }
+        Some("serve") => serve(),
+        _ => {
+            eprintln!("agent-studio-runtime serve | hook");
+            Ok(())
+        }
+    };
+    if let Err(e) = result {
+        eprintln!("{e}");
+        std::process::exit(1);
+    }
+}
+fn quote_path(p: &Path) -> String {
+    format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"))
+}
+fn hook_command(binary: &Path, home: &Path, source: &str, edition: Option<&str>) -> String {
+    let mut command = format!(
+        "{} hook --home {} --source {}",
+        quote_path(binary),
+        quote_path(home),
+        source
+    );
+    if let Some(edition) = edition {
+        command.push_str(" --edition ");
+        command.push_str(edition);
+    }
+    command
+}
+fn ensure_hook_binary(home: &Path) -> Result<PathBuf, String> {
+    let binary = std::env::current_exe().map_err(|e| e.to_string())?;
+    // A stable native hook survives either host being upgraded or removed.
+    let hook_dir = home.join(".agent-studio/bin");
+    std::fs::create_dir_all(&hook_dir).map_err(|e| e.to_string())?;
+    let hook_binary = hook_dir.join(if cfg!(windows) {
+        "agent-studio-runtime-v1.exe"
+    } else {
+        "agent-studio-runtime-v1"
+    });
+    let temp = hook_dir.join("agent-studio-runtime-v1.new");
+    std::fs::copy(&binary, &temp).map_err(|e| e.to_string())?;
+    std::fs::rename(&temp, &hook_binary).map_err(|e| e.to_string())?;
+    Ok(hook_binary)
+}
+fn install_hooks(c: &Collector) -> Result<(), String> {
+    let need = c.settings["sources"]["codex"]["enabled"] == true
+        || c.settings["sources"]["workbuddy"]["enabled"] == true
+        || c.settings["sources"]["codebuddy-ide"]["enabled"] == true;
+    if !need {
+        return Ok(());
+    }
+    let binary = ensure_hook_binary(&c.home)?;
+    install_codex_hook(c, &binary)?;
+    install_workbuddy_hook(c, &binary)?;
+    install_ide_hook(c, &binary)
+}
+fn install_codex_hook(c: &Collector, binary: &Path) -> Result<(), String> {
+    if c.settings["sources"]["codex"]["enabled"] != true {
+        return Ok(());
+    }
+    let dir = c.paths("codex")[0].clone();
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    let command = hook_command(binary, &c.home, "codex", None);
+    let file = dir.join("hooks.json");
+    let mut doc = match std::fs::read(&file) {
+        Ok(b) => {
+            serde_json::from_slice::<Value>(&b).map_err(|_| "现有 Codex Hook 配置无效，未覆盖")?
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(e) => return Err(e.to_string()),
+    };
+    if !doc.is_object() {
+        return Err("现有 Codex Hook 配置无效".into());
+    }
+    if doc["hooks"].is_null() {
+        doc["hooks"] = json!({});
+    }
+    if !doc["hooks"].is_object() {
+        return Err("现有 Codex Hook 配置无效".into());
+    }
+    let before = doc.clone();
+    for event in [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PermissionRequest",
+        "Stop",
+        "Interrupt",
+        "SessionEnd",
+    ] {
+        let mut groups = doc["hooks"][event].as_array().cloned().unwrap_or_default();
+        for group in &mut groups {
+            if let Some(hooks) = group["hooks"].as_array_mut() {
+                hooks.retain(|h| {
+                    let c = text(&h["command"]);
+                    !c.contains("astra-office-status.py")
+                        && !(c.contains("agent-studio-runtime") && c.contains(" hook"))
+                });
+            }
+        }
+        groups.retain(|g| !g["hooks"].as_array().is_some_and(|a| a.is_empty()));
+        let mut h =
+            json!({"type":"command","command":command,"timeout":3,"statusMessage":"Agent Studio"});
+        if event != "SessionEnd" {
+            h["async"] = json!(true);
+        }
+        groups.push(json!({"hooks":[h]}));
+        doc["hooks"][event] = json!(groups);
+    }
+    if before != doc {
+        let backup = dir.join("hooks.agent-studio-before-rust.json");
+        if file.exists() && !backup.exists() {
+            atomic_json(&backup, &before)?;
+        }
+        atomic_json(&file, &doc)?;
+    }
+    Ok(())
+}
+fn install_workbuddy_hook(c: &Collector, binary: &Path) -> Result<(), String> {
+    if c.settings["sources"]["workbuddy"]["enabled"] != true {
+        return Ok(());
+    }
+    let custom = text(&c.settings["sources"]["workbuddy"]["path"]);
+    for file in workbuddy_settings_files(&c.home, &custom) {
+        let command = hook_command(
+            binary,
+            &c.home,
+            "workbuddy",
+            Some(workbuddy_edition(&file)),
+        );
+        let mut doc = match std::fs::read(&file) {
+            Ok(b) => serde_json::from_slice::<Value>(&b)
+                .map_err(|_| "现有 WorkBuddy Hook 配置无效，未覆盖")?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
+            Err(e) => return Err(e.to_string()),
+        };
+        let before = doc.clone();
+        doc = merge_workbuddy_hooks(doc, &command)?;
+        if before != doc {
+            if let Some(parent) = file.parent() {
+                let backup = parent.join("settings.agent-studio-before-hooks.json");
+                if file.exists() && !backup.exists() {
+                    atomic_json(&backup, &before)?;
+                }
+            }
+            atomic_json(&file, &doc)?;
+        }
+    }
+    Ok(())
+}
+fn install_ide_hook(c: &Collector, binary: &Path) -> Result<(), String> {
+    if c.settings["sources"]["codebuddy-ide"]["enabled"] != true { return Ok(()); }
+    let custom = text(&c.settings["sources"]["codebuddy-ide"]["path"]);
+    for file in codebuddy_settings_files(&c.home, &custom) {
+        // Both IDE editions share ~/.codebuddy hooks. Stamp edition at
+        // invocation from the parent app, not from this install path.
+        let command = hook_command(binary, &c.home, "codebuddy-ide", None);
+        let before = match std::fs::read(&file) {
+            Ok(b) => serde_json::from_slice::<Value>(&b).map_err(|_| "现有 CodeBuddy IDE Hook 配置无效，未覆盖")?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
+            Err(e) => return Err(e.to_string()),
+        };
+        let doc = merge_codebuddy_ide_hooks(before.clone(), &command)?;
+        if before != doc {
+            if let Some(parent) = file.parent() {
+                let backup = parent.join("settings.agent-studio-before-ide-hooks.json");
+                if file.exists() && !backup.exists() { atomic_json(&backup, &before)?; }
+            }
+            atomic_json(&file, &doc)?;
+        }
+    }
+    Ok(())
+}
+struct Notifications {
+    seen: VecDeque<String>,
+    initialized: bool,
+}
+impl Notifications {
+    fn ingest(&mut self, s: &Value) -> Vec<Value> {
+        if s["ready"] != true {
+            return vec![];
+        }
+        let mut fresh = Vec::new();
+        for e in s["events"].as_array().into_iter().flatten() {
+            let id = text(&e["id"]);
+            if self.seen.contains(&id) {
+                continue;
+            }
+            self.seen.push_back(id.clone());
+            let session = s["sessions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|s| s["id"] == e["sessionId"]);
+            let unresolved = e["kind"] == "wait"
+                && session.is_some_and(|s| {
+                    s["roundId"] == e["roundId"]
+                        && s["pending"].as_array().into_iter().flatten().any(|p| {
+                            serde_json::from_str::<Value>(&id)
+                                .ok()
+                                .is_some_and(|a| a[3] == p["id"])
+                        })
+                });
+            if e["kind"] == "wait" && !unresolved
+                || e["kind"] != "wait" && (!self.initialized || e["historical"] == true)
+            {
+                continue;
+            }
+            fresh.push(e.clone());
+        }
+        self.initialized = true;
+        while self.seen.len() > 2000 {
+            self.seen.pop_front();
+        }
+        fresh
+    }
+}
+fn serve() -> Result<(), String> {
+    let home = home();
+    let dir = home.join(".agent-studio");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(dir.join("runtime-v1.lock"))
+        .map_err(|e| e.to_string())?;
+    if lock.try_lock_exclusive().is_err() {
+        return Ok(());
+    }
+    let mut collector = Collector::new(home.clone())?;
+    let warning = install_hooks(&collector).err();
+    let server = tiny_http::Server::http("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = server.server_addr().to_ip().ok_or("无效监听地址")?.port();
+    let token = uuid::Uuid::new_v4().to_string();
+    let codeg_path = format!("/api/codeg-webhook/{}",uuid::Uuid::new_v4());
+    collector.configure_codeg_webhook(format!("http://127.0.0.1:{port}{codeg_path}"));
+    type Job = (
+        String,
+        Value,
+        Option<std::sync::mpsc::Sender<Result<Value, String>>>,
+    );
+    let (jobs, receiver) = std::sync::mpsc::channel::<Job>();
+    let (updates, changes) = std::sync::mpsc::channel::<Value>();
+    let initial_settings = collector.settings.clone();
+    let worker = std::thread::spawn(move || {
+        let mut poll_at = Instant::now() - Duration::from_secs(5);
+        loop {
+            if poll_at.elapsed() >= Duration::from_secs(2) {
+                collector.poll();
+                poll_at = Instant::now();
+                let snapshot = collector.hub.snapshot();
+                let _ = updates.send(snapshot);
+            }
+            match receiver.recv_timeout(Duration::from_millis(100)) {
+                Ok((command, payload, reply)) => {
+                    let result = if command == "hook" {
+                        Ok(json!(collector.ingest_hook(&payload)))
+                    } else {
+                        collector.request(&command, &payload)
+                    };
+                    if command == "settings_set" && result.is_ok() {
+                        let _ = install_hooks(&collector);
+                        poll_at = Instant::now() - Duration::from_secs(5);
+                    }
+                    let _ = updates.send(collector.hub.snapshot());
+                    if let Some(reply) = reply {
+                        let _ = reply.send(result);
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(_) => {
+                    break;
+                }
+            }
+        }
+        collector.stop_codeg_webhook();
+    });
+    atomic_json(
+        &endpoint(&home),
+        &json!({"protocol":PROTOCOL,"port":port,"token":token,"pid":std::process::id()}),
+    )?;
+    let mut clients: HashMap<String, Instant> = HashMap::new();
+    let mut owner = String::new();
+    let mut idle = Instant::now();
+    let saved: Value = std::fs::read(dir.join("desktop-notifications.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(Value::Null);
+    let mut notify = Notifications {
+        seen: saved["seen"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect(),
+        initialized: false,
+    };
+    let mut alerts = Vec::new();
+    let mut snapshot =
+        json!({"version":1,"ready":false,"sessions":[],"events":[],"sources":{},"ts":now()});
+    let mut settings = initial_settings;
+    let mut last_seen = String::new();
+    loop {
+        while let Ok(next) = changes.try_recv() {
+            snapshot = next;
+            alerts.extend(notify.ingest(&snapshot));
+            if alerts.len() > 60 {
+                alerts.drain(..alerts.len() - 60);
+            }
+            let seen = json!(notify.seen).to_string();
+            if seen != last_seen {
+                if atomic_json(
+                    &dir.join("desktop-notifications.json"),
+                    &json!({"seen":notify.seen,"alerts":[]}),
+                )
+                .is_ok()
+                {
+                    last_seen = seen;
+                }
+            }
+        }
+        clients.retain(|_, t| t.elapsed() < Duration::from_secs(15));
+        if !clients.contains_key(&owner) {
+            owner = clients.keys().min().cloned().unwrap_or_default();
+        }
+        if !clients.is_empty() {
+            idle = Instant::now();
+        }
+        if idle.elapsed() > Duration::from_secs(20) {
+            break;
+        }
+        let Some(mut request) = server
+            .recv_timeout(Duration::from_millis(100))
+            .map_err(|e| e.to_string())?
+        else {
+            continue;
+        };
+        // Codeg cannot supply Authorization headers; a per-runtime random URL
+        // is the callback capability. It is never accepted by the RPC route.
+        if request.url() == codeg_path && request.method() == &tiny_http::Method::Post
+            && !request.headers().iter().any(|h|h.field.equiv("Origin")) {
+            if settings["sources"]["codeg"]["enabled"] != true {
+                let _=request.respond(tiny_http::Response::empty(410));continue;
+            }
+            let mut body=Vec::new();
+            let _=request.as_reader().take(65537).read_to_end(&mut body);
+            let status=if body.len()>65536 {413} else {
+                match serde_json::from_slice::<Value>(&body) {
+                    Ok(p) if p["source"]=="codeg" && p["connection_id"].is_string()
+                        && agent_studio_core::adapters::CODEG_EVENTS.contains(&text(&p["event"]).as_str()) => {
+                        if jobs.send(("hook".into(),p,None)).is_ok(){204}else{503}
+                    },
+                    _=>400,
+                }
+            };
+            let _=request.respond(tiny_http::Response::empty(status));continue;
+        }
+        let authenticated = request.headers().iter().any(|h| {
+            h.field.equiv("Authorization") && h.value.as_str() == format!("Bearer {token}")
+        });
+        if request.url() != "/rpc"
+            || request.method() != &tiny_http::Method::Post
+            || !authenticated
+            || request.headers().iter().any(|h| h.field.equiv("Origin"))
+        {
+            let _ = request.respond(tiny_http::Response::empty(403));
+            continue;
+        }
+        let mut bytes = Vec::new();
+        let _ = request
+            .as_reader()
+            .take(1024 * 1024 + 1)
+            .read_to_end(&mut bytes);
+        if bytes.len() > 1024 * 1024 {
+            let _ = request.respond(tiny_http::Response::empty(413));
+            continue;
+        }
+        let result = (|| -> Result<Value, String> {
+            let req: Value = serde_json::from_slice(&bytes).map_err(|_| "请求格式无效")?;
+            let p = &req["payload"];
+            match req["command"].as_str().unwrap_or("") {
+                "hello" => {
+                    let id = p["client"]
+                        .as_str()
+                        .filter(|s| !s.is_empty() && s.len() < 100)
+                        .ok_or("客户端无效")?;
+                    clients.insert(id.into(), Instant::now());
+                    if owner.is_empty() {
+                        owner = id.into();
+                    }
+                    Ok(json!({"protocol":PROTOCOL}))
+                }
+                "poll" => {
+                    let id = p["client"].as_str().ok_or("客户端无效")?;
+                    let entry = clients.get_mut(id).ok_or("客户端租约失效")?;
+                    *entry = Instant::now();
+                    let native = if owner == id {
+                        std::mem::take(&mut alerts)
+                            .into_iter()
+                            .filter(|a| {
+                                settings["notifications"]["desktop"] == true
+                                    && settings["notifications"][text(&a["kind"])] != false
+                            })
+                            .map(|mut a| {
+                                a["sound"] = settings["notifications"]["sound"].clone();
+                                a
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        vec![]
+                    };
+                    Ok(
+                        json!({"snapshot":snapshot,"settings":settings,"notifications":native,"owner":owner==id,"warning":warning}),
+                    )
+                }
+                "leave" => {
+                    clients.remove(&text(&p["client"]));
+                    Ok(json!(true))
+                }
+                "hook" => {
+                    jobs.send(("hook".into(), p.clone(), None))
+                        .map_err(|_| "采集器已退出")?;
+                    Ok(json!(true))
+                }
+                "settings_get" => Ok(settings.clone()),
+                command if matches!(command, "settings_set" | "settings_check") => {
+                    let (send, receive) = std::sync::mpsc::channel();
+                    jobs.send((command.into(), p.clone(), Some(send)))
+                        .map_err(|_| "采集器已退出")?;
+                    let value = receive
+                        .recv_timeout(Duration::from_secs(10))
+                        .map_err(|_| "采集器忙，请重试")??;
+                    if command == "settings_set" {
+                        settings = value.clone();
+                    }
+                    Ok(value)
+                }
+                _ => Err("不支持的命令".into()),
+            }
+        })();
+        let body = match result {
+            Ok(v) => json!({"value":v}),
+            Err(e) => json!({"error":e}),
+        };
+        let _ = request.respond(
+            tiny_http::Response::from_string(body.to_string()).with_header(
+                tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap(),
+            ),
+        );
+    }
+    drop(jobs);
+    let _ = worker.join();
+    let _ = std::fs::remove_file(endpoint(&home));
+    drop(lock);
+    Ok(())
+}

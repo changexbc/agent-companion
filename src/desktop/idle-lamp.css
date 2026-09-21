@@ -1,0 +1,33 @@
+/* Approved idle lamp: same 40px drawing and 64×72 capsule as the preview. */
+.desktop-strip-empty{height:72px;padding:0}
+.desktop-strip-empty .desktop-grip{position:absolute;top:2px}
+.desktop-empty{width:40px;height:40px;position:absolute;top:21px;display:block}
+.desktop-empty-lamp{display:block;width:40px;height:40px;overflow:visible;pointer-events:none}
+.desktop-empty-lamp .lamp-arm-response,.desktop-empty-lamp .lamp-arm-idle{transform-box:view-box;transform-origin:29px 26px}
+.desktop-empty-lamp .lamp-head-response,.desktop-empty-lamp .lamp-head-idle{transform-box:view-box;transform-origin:25px 17px}
+.desktop-empty-lamp .lamp-arm-response{transition:transform .85s cubic-bezier(.22,.75,.25,1)}
+.desktop-empty-lamp .lamp-head-response{transition:transform 1.05s cubic-bezier(.22,.75,.25,1) .08s}
+.desktop-empty-lamp .lamp-arm-idle{animation:idle-lamp-arm 13s ease-in-out -8.6s infinite}
+.desktop-empty-lamp .lamp-head-idle{animation:idle-lamp-head 13s ease-in-out -8.6s infinite}
+.desktop-empty-lamp .lamp-light{opacity:.65;transition:opacity .85s ease}
+.lamp-attentive .desktop-empty-lamp .lamp-arm-response{transform:rotate(12deg)}
+.lamp-attentive .desktop-empty-lamp .lamp-head-response{transform:rotate(-7deg)}
+.lamp-attentive .desktop-empty-lamp .lamp-light{opacity:1}
+.desktop-strip[data-connection=offline] .desktop-empty-lamp{opacity:.55;filter:saturate(.4)}
+.desktop-empty-lamp:not(.companion-visible) *,
+.companion-system-paused .desktop-empty-lamp *,
+.desktop-inactive .desktop-empty-lamp *,
+.welcome-blocking .desktop-empty-lamp *{animation-play-state:paused!important}
+.companion-motion-paused .desktop-empty-lamp *,
+.desktop-strip[data-connection=offline] .desktop-empty-lamp *{animation:none!important;transition:none!important}
+.companion-motion-paused .desktop-empty-lamp .lamp-arm-response,
+.companion-motion-paused .desktop-empty-lamp .lamp-head-response,
+.desktop-inactive .desktop-empty-lamp .lamp-arm-response,
+.desktop-inactive .desktop-empty-lamp .lamp-head-response,
+.desktop-strip[data-connection=offline] .desktop-empty-lamp .lamp-arm-response,
+.desktop-strip[data-connection=offline] .desktop-empty-lamp .lamp-head-response{transform:none!important}
+.companion-motion-paused .desktop-empty-lamp .lamp-light,
+.desktop-strip[data-connection=offline] .desktop-empty-lamp .lamp-light{opacity:.65}
+@keyframes idle-lamp-arm{0%,77%,97%,100%{transform:rotate(0deg)}83%{transform:rotate(-9deg)}90%{transform:rotate(2deg)}94%{transform:rotate(-.7deg)}}
+@keyframes idle-lamp-head{0%,78%,98%,100%{transform:rotate(0deg)}85%{transform:rotate(4deg)}91%{transform:rotate(-1.5deg)}95%{transform:rotate(.4deg)}}
+@media(prefers-reduced-motion:reduce){.desktop-empty-lamp *{animation:none!important;transition:none!important}.desktop-empty-lamp .lamp-arm-response,.desktop-empty-lamp .lamp-head-response{transform:none!important}}
