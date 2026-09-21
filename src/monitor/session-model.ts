@@ -1,32 +1,61 @@
 import { visibleSession } from './session-visibility.js';
 import { ACTIVE } from './model.js';
+import type { ConnectionState, Session, SessionStatus, Snapshot } from '../types/snapshot.js';
 
-export const PORTRAITS = [
+export interface PortraitBase { id: string; name: string; avatar: null }
+export interface RailIdentity extends PortraitBase { slot: number; number: number }
+
+/** Only the two calls the portrait cache needs; tests pass a Map-backed fake. */
+export interface PortraitStorage {
+  getItem(key: string): string | null | undefined;
+  setItem(key: string, value: string): void;
+}
+
+interface RailRow {
+  identity: RailIdentity;
+  session: Session;
+  offline: boolean;
+  expiresAt?: number | null;
+  openedUntil?: number | null;
+  hostGoneUntil?: number | null;
+}
+
+export interface RailItem extends RailRow { id: string }
+
+export interface RailModelOptions {
+  now?: () => number;
+  storage?: PortraitStorage | null;
+  holdMs?: number;
+}
+
+export const PORTRAITS: PortraitBase[] = [
   ['red-panda', '小熊猫'], ['elephant', '大象'], ['penguin', '企鹅'],
   ['pig', '小猪'], ['dragon', '幼龙'], ['lion', '狮子'],
   ['koala', '考拉'], ['owl', '猫头鹰'], ['robot', '小机器人'],
   ['deer', '小鹿'], ['hedgehog', '刺猬'], ['giraffe', '长颈鹿'], ['tiger', '老虎'],
 ].map(([id, name]) => ({ id, name, avatar: null }));
 export const PORTRAIT_STORAGE_KEY = 'astra.desktop.portraits.v2';
-const TERMINAL = new Set(['done', 'error', 'aborted']);
+const TERMINAL = new Set<SessionStatus>(['done', 'error', 'aborted']);
 export const OPENED_HOLD_MS = 10_000;
 export const FINISHED_HOLD_MS = 60 * 60_000;
 export const HOST_EXIT_GRACE_MS = 15_000;
 export const OVERFLOW_LIMIT = 8;
 export const OVERFLOW_HOLD_MS = 10_000;
 
-export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOLD_MS } = {}) {
-  const rows = new Map(), portraits = new Map(), dismissed = new Set();
-  let snapshot = null, connection = 'connecting';
-  let overflow = null;
+export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOLD_MS }: RailModelOptions = {}) {
+  const rows = new Map<string, RailRow>(), portraits = new Map<string, number>(), dismissed = new Set<string>();
+  let snapshot: Snapshot | null = null, connection: ConnectionState = 'connecting';
+  let overflow: { id: string; roundId: string; until: number } | null = null;
   try {
-    for (const [id, index] of JSON.parse(storage?.getItem(PORTRAIT_STORAGE_KEY) || '[]').slice(-256)) {
-      if (typeof id === 'string' && Number.isInteger(index) && index >= 0 && index < 1_000_000) portraits.set(id, index);
+    const saved: unknown = JSON.parse(storage?.getItem(PORTRAIT_STORAGE_KEY) || '[]');
+    if (Array.isArray(saved)) for (const entry of (saved as unknown[]).slice(-256)) {
+      const [id, index] = Array.isArray(entry) ? entry as unknown[] : [];
+      if (typeof id === 'string' && typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < 1_000_000) portraits.set(id, index);
     }
   } catch { /* An unavailable or old cache does not stop monitoring. */ }
-  function portrait(id) {
+  function portrait(id: string): RailIdentity {
     const occupied = new Set([...rows.values()].map(row => row.identity.slot));
-    if (!portraits.has(id) || occupied.has(portraits.get(id))) {
+    if (!portraits.has(id) || occupied.has(portraits.get(id)!)) {
       const counts = PORTRAITS.map((_, index) => [...occupied].filter(slot => slot % PORTRAITS.length === index).length);
       let slot = counts.indexOf(Math.min(...counts));
       while (occupied.has(slot)) slot += PORTRAITS.length;
@@ -38,7 +67,7 @@ export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOL
       }
       try { storage?.setItem(PORTRAIT_STORAGE_KEY, JSON.stringify([...portraits].slice(-256))); } catch {}
     }
-    const slot = portraits.get(id), base = PORTRAITS[slot % PORTRAITS.length];
+    const slot = portraits.get(id)!, base = PORTRAITS[slot % PORTRAITS.length];
     const number = Math.floor(slot / PORTRAITS.length) + 1;
     return { ...base, slot, number, name: number > 1 ? `${base.name} ${number}` : base.name };
   }
@@ -47,9 +76,9 @@ export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOL
     const online = connection === 'connected', sessions = new Map(snapshot.sessions.filter(visibleSession).map(s => [s.id, s]));
     for (const [id, row] of rows) {
       const next = sessions.get(id);
-      const source = next?.source || row.session?.source;
+      const source = next?.source || row.session.source;
       const state = snapshot.sources?.[source]?.state;
-      const healthy = online && ['ok', 'partial'].includes(state);
+      const healthy = online && (state === 'ok' || state === 'partial');
       if (state === 'disabled' || (!next && healthy)) { rows.delete(id); continue; }
       // A host-process exit is an observed fact, not a timeout guess: show the
       // result briefly, then retire the row. This must run before the health
@@ -63,7 +92,7 @@ export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOL
         continue;
       }
       row.hostGoneUntil = null;
-      if (next && (!TERMINAL.has(next.status) || row.session?.roundId !== next.roundId)) row.openedUntil = null;
+      if (next && (!TERMINAL.has(next.status) || row.session.roundId !== next.roundId)) row.openedUntil = null;
       if (next) row.session = next;
       row.offline = !healthy;
       if (!next || !healthy) continue;
@@ -74,12 +103,14 @@ export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOL
         const ended = next.endedAt ?? next.updatedAt ?? now();
         // A host exit keeps its short grace even if the app relaunches before it
         // elapses; a later round is what restores the normal one-hour hold.
-        row.expiresAt = row.openedUntil || (next.endedBy === 'host' ? row.hostGoneUntil ?? ended + HOST_EXIT_GRACE_MS : ended + holdMs);
-        if (dismissed.has(id) || row.expiresAt <= now()) rows.delete(id);
+        const expiresAt = row.openedUntil || (next.endedBy === 'host' ? row.hostGoneUntil ?? ended + HOST_EXIT_GRACE_MS : ended + holdMs);
+        row.expiresAt = expiresAt;
+        if (dismissed.has(id) || expiresAt <= now()) rows.delete(id);
       } else row.expiresAt = null;
     }
     for (const session of sessions.values()) {
-      const healthy = ['ok', 'partial'].includes(snapshot.sources?.[session.source]?.state);
+      const state = snapshot.sources?.[session.source]?.state;
+      const healthy = state === 'ok' || state === 'partial';
       if (ACTIVE.has(session.status) && online && healthy) {
         dismissed.delete(session.id);
         if (!rows.has(session.id)) { const identity = portrait(session.id); rows.set(session.id, { identity, session, offline: false }); }
@@ -98,34 +129,40 @@ export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOL
       if (overflow?.id !== id || overflow.roundId !== row.session.roundId) {
         overflow = { id, roundId: row.session.roundId, until: now() + OVERFLOW_HOLD_MS };
       }
-      if (overflow.until <= now()) {
+      const due = overflow;
+      if (due.until <= now()) {
         dismissed.add(id); rows.delete(id); overflow = null;
         reconcile();
       }
     }
   }
   return {
-    accept(value) { snapshot = value; reconcile(); },
-    connect(value) { connection = value; reconcile(); },
-    retainOpened(id, roundId) {
+    accept(value: Snapshot) { snapshot = value; reconcile(); },
+    connect(value: ConnectionState) { connection = value; reconcile(); },
+    retainOpened(id: string, roundId: string) {
       const row = rows.get(id);
       if (!row || !TERMINAL.has(row.session.status) || row.session.roundId !== roundId) return;
       row.openedUntil ??= now() + OPENED_HOLD_MS;
       row.expiresAt = row.openedUntil;
     },
-    cancelOpened(id, roundId) {
+    cancelOpened(id: string, roundId: string) {
       const row = rows.get(id);
       if (row?.session.roundId === roundId) { row.openedUntil = null; reconcile(); }
     },
-    dismiss(id, roundId) {
+    dismiss(id: string, roundId?: string) {
       const session = rows.get(id)?.session;
-      if (TERMINAL.has(session?.status) && (roundId === undefined || session.roundId === roundId)) {
+      if (session && TERMINAL.has(session.status) && (roundId === undefined || session.roundId === roundId)) {
         dismissed.add(id); rows.delete(id); reconcile();
       }
     },
     refresh: reconcile,
-    get items() { return [...rows].map(([id, row]) => ({ id, ...row })); },
-    get nextExpiry() { const times = [...rows.values()].filter(row => row.expiresAt && (!row.offline || row.hostGoneUntil)).map(row => row.expiresAt); if (overflow) times.push(overflow.until); return times.length ? Math.min(...times) : null; },
+    get items(): RailItem[] { return [...rows].map(([id, row]) => ({ id, ...row })); },
+    get nextExpiry(): number | null {
+      const times: number[] = [];
+      for (const row of rows.values()) if (row.expiresAt && (!row.offline || row.hostGoneUntil)) times.push(row.expiresAt);
+      if (overflow) times.push(overflow.until);
+      return times.length ? Math.min(...times) : null;
+    },
     get snapshot() { return snapshot; },
     get connection() { return connection; },
   };

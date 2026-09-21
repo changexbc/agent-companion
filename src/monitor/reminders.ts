@@ -1,6 +1,9 @@
+import type { ConnectionState } from '../types/snapshot.js';
+import type { RailItem } from './session-model.js';
+
 // A muted question stays muted only for this exact round and pending payload.
-export const questionKey = item => JSON.stringify([item.session.roundId, item.session.pending || []]);
-export function automaticReminderItems(items, connection, mutedQuestions) {
+export const questionKey = (item: RailItem) => JSON.stringify([item.session.roundId, item.session.pending || []]);
+export function automaticReminderItems(items: RailItem[], connection: ConnectionState, mutedQuestions: Map<string, string>) {
   for (const [id, key] of mutedQuestions) {
     const item=items.find(row=>row.id===id);
     if(!item||item.session.status!=='wait'||questionKey(item)!==key)mutedQuestions.delete(id);

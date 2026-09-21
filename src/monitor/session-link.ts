@@ -1,16 +1,27 @@
 import { isDesktop, desktopCommand } from '../desktop/host.js';
+
+/** The link helpers only read these fields, so partial sessions stay valid inputs. */
+export interface LinkableSession {
+  source?: string;
+  agentType?: string;
+  sessionId?: string;
+  cwd?: string;
+}
+
+export interface SessionBadge { host: string; id: string; label: string }
+
 export const SESSION_WINDOW = {x:14,y:18,width:484,height:232};
 export const SESSION_BUTTON = {x:385,y:250,width:110,height:25,radius:6};
 export const SESSION_SOURCES = ['codex','workbuddy','codebuddy-ide','codeg'];
 export const AGENT_ICON_IDS = ['codex','workbuddy','codebuddy-ide','codeg','grok'];
-const NESTED_AGENTS = {
+const NESTED_AGENTS: Record<string, string> = {
   code_buddy:'codebuddy-ide', codebuddy:'codebuddy-ide', codebuddy_code:'codebuddy-ide',
   claude_code:'claude', claude_acp:'claude', claude:'claude',
   grok:'grok', grok_build:'grok',
   codex:'codex', codex_acp:'codex',
   workbuddy:'workbuddy',
 };
-export function sourceLabel(source, agentType) {
+export function sourceLabel(source?: string, agentType?: string) {
   if (source==='workbuddy') return agentType==='workbuddy-ai' || agentType==='international' ? 'WorkBuddy 国际版' : 'WorkBuddy';
   if (source==='codebuddy-ide') {
     const type=String(agentType||'').toLowerCase();
@@ -20,15 +31,15 @@ export function sourceLabel(source, agentType) {
   }
   return source==='codex'?'Codex':source==='codeg'?'Codeg':source==='grok'?'Grok':source==='claude'?'Claude':'未绑定';
 }
-export function sessionSourceLabel(session) {
+export function sessionSourceLabel(session?: LinkableSession | null) {
   return sourceLabel(session?.source, session?.agentType);
 }
-export function nestedAgentId(agentType) {
+export function nestedAgentId(agentType?: string): string | null {
   const type=String(agentType||'').toLowerCase().replace(/[\s-]+/g,'_');
   if(!type)return null;
   return NESTED_AGENTS[type] || type;
 }
-export function sessionBadge(session) {
+export function sessionBadge(session?: LinkableSession | null): SessionBadge | null {
   if(!session?.source)return null;
   if(session.source==='codeg'){
     const nested=nestedAgentId(session.agentType);
@@ -40,15 +51,15 @@ export function sessionBadge(session) {
   }
   return {host:session.source,id:session.source,label:sourceLabel(session.source, session.agentType)};
 }
-function isCodeBuddyInternationalType(agentType) {
+function isCodeBuddyInternationalType(agentType?: string) {
   const type=String(agentType||'').toLowerCase();
   if (type==='codebuddycn' || type==='domestic') return false;
   return type==='codebuddy' || type==='international' || !type;
 }
-export function isCodeBuddyInternational(session) {
+export function isCodeBuddyInternational(session?: LinkableSession | null) {
   return session?.source==='codebuddy-ide' && isCodeBuddyInternationalType(session.agentType);
 }
-export function codeBuddyFolderLink(cwd, session) {
+export function codeBuddyFolderLink(cwd: unknown, session?: LinkableSession | null): string | null {
   if(typeof cwd !== 'string' || !cwd.trim())return null;
   const normalized=cwd.trim().replace(/\\/g,'/').replace(/\/+$/,'');
   if(!normalized || !/^(?:\/|[A-Za-z]:\/)/.test(normalized))return null;
@@ -56,17 +67,17 @@ export function codeBuddyFolderLink(cwd, session) {
   const scheme=isCodeBuddyInternationalType(session?.agentType)?'codebuddy':'codebuddycn';
   return `${scheme}://file${absolute.split('/').map(encodeURIComponent).join('/')}`;
 }
-export function codegAppLink(session) {
+export function codegAppLink(session?: LinkableSession | null): string | null {
   if(session?.source!=='codeg'||typeof session?.sessionId!=='string'||!session.sessionId.trim())return null;
   if(session.sessionId.startsWith('connection:'))return '/api/open-session?source=codeg';
   return `codeg://session/${encodeURIComponent(session.sessionId.trim())}`;
 }
 
-export function isWorkBuddyInternational(session) {
+export function isWorkBuddyInternational(session?: LinkableSession | null) {
   return session?.source==='workbuddy' && (session.agentType==='workbuddy-ai' || session.agentType==='international');
 }
 
-export function agentSessionLink(session) {
+export function agentSessionLink(session?: LinkableSession | null): string | null {
   if(session?.source==='codebuddy-ide'){
     const edition=isCodeBuddyInternational(session)?'international':'domestic';
     return codeBuddyFolderLink(session.cwd, session) || `/api/open-session?source=codebuddy-ide&edition=${edition}`;
@@ -79,7 +90,7 @@ export function agentSessionLink(session) {
   return null;
 }
 
-export function openSessionLink(url, fetchImpl=globalThis.fetch) {
+export function openSessionLink(url?: string | null, fetchImpl: typeof fetch | undefined = globalThis.fetch) {
   if(!url)return;
   if(isDesktop())return desktopCommand('open_session_url',{url});
   const path=url.startsWith('/')?url.split('?')[0]:(()=>{try{return new URL(url,'http://127.0.0.1').pathname;}catch{return '';}})();
@@ -95,13 +106,13 @@ export function openSessionLink(url, fetchImpl=globalThis.fetch) {
   if(typeof window.location!=='undefined')window.location.href=url;
 }
 
-export function workBuddySessionLink(session) {
+export function workBuddySessionLink(session?: LinkableSession | null): string | null {
   if (session?.source !== 'workbuddy' || typeof session.sessionId !== 'string' || !session.sessionId.trim()) return null;
   return `${isWorkBuddyInternational(session)?'workbuddy-ai':'workbuddy'}://chat/${encodeURIComponent(session.sessionId)}`;
 }
 
 // GLTF screen UVs use the same top-to-bottom orientation as our canvas texture.
-export function screenSessionLink(state, uv, flippedVertical=false) {
+export function screenSessionLink(state?: (LinkableSession & {mode?: string; status?: string}) | null, uv?: {x: number; y: number} | null, flippedVertical=false): string | null {
   if(state?.mode !== 'monitor' || !uv)return null;
   const x=(uv.x*512-SESSION_WINDOW.x)*512/SESSION_WINDOW.width;
   const y=((flippedVertical ? 1-uv.y : uv.y)*288-SESSION_WINDOW.y)*288/SESSION_WINDOW.height;
