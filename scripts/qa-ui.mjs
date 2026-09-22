@@ -217,9 +217,10 @@ async function railMotion(){
   await page.waitForTimeout(500);
   const row=await page.locator('.desktop-avatar').boundingBox();
   await page.evaluate(()=>__snapshot([]));
-  // The ghost only lives for its 200ms fade, so a missing one must fail fast and
-  // say so rather than timing out on a locator.
-  await page.locator('.desktop-departing').waitFor({state:'attached',timeout:2000}).catch(()=>{});
+  // The ghost only lives for its 200ms fade. Wait on the observer's own record
+  // rather than on a locator whose rejection would be swallowed, so a missing
+  // ghost fails on the assertion below with its own message.
+  await page.waitForFunction(()=>window.__ghosts.length===1,null,{timeout:2000}).catch(()=>{});
   const ghosts=await page.evaluate(()=>window.__ghosts);
   assert.equal(ghosts.length,1,'a row that leaves the list gets exactly one departing ghost');
   const ghost=ghosts[0];
@@ -233,15 +234,39 @@ async function railMotion(){
   // Expanding the list grows the rail, and the growth is animated rather than
   // snapped; reduced motion is asserted to skip it by the screenshot diff.
   const ghostsBefore=await page.evaluate(()=>window.__ghosts.length);
-  await page.evaluate(list=>__snapshot(list),Array.from({length:10},(_,i)=>({...running,id:`codex:fixture-${i}`,sessionId:`fixture-${i}`})));
+  const ten=Array.from({length:10},(_,i)=>({...running,id:`codex:fixture-${i}`,sessionId:`fixture-${i}`}));
+  await page.evaluate(list=>__snapshot(list),ten);
   await page.locator('.desktop-overflow').waitFor({state:'visible'});
   await page.locator('.desktop-overflow').click();
   await page.waitForFunction(()=>document.querySelector('.desktop-strip').getAnimations().some(a=>a.effect?.getKeyframes().some(keyframe=>'height' in keyframe)),null,{timeout:2000});
   await page.waitForTimeout(400);
   assert.equal(await page.locator('.desktop-avatar:visible').count(),10,'expanding reveals every row');
+  // Collapsing is the other half of the same behaviour and used to go untested.
+  await page.locator('.desktop-overflow').click();
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator('.desktop-avatar:visible').count(),8,'collapsing hides the overflow again');
+  assert.equal(await page.locator('.desktop-overflow').getAttribute('aria-expanded'),'false');
   assert.equal(await page.evaluate(()=>window.__ghosts.length),ghostsBefore,'expanding and collapsing retires nothing');
+  // A FLIP baseline taken from a rect would include the transform of a reorder
+  // that is still running, so a commit landing mid-animation would stack a
+  // second, spurious animation on a row that never moved. Only rows inside the
+  // list count: a retiring ghost is also a `.desktop-avatar` and legitimately
+  // owns an animation of its own. The row that leaves has to come from the
+  // middle, or nothing below it moves and there is no reorder to interrupt.
+  const animationCounts=()=>page.evaluate(()=>[...document.querySelectorAll('.desktop-list .desktop-avatar')].map(avatar=>avatar.getAnimations().length));
+  const survivors=ten.filter((_,index)=>index!==2);
+  await page.locator('.desktop-overflow').click();
+  await page.waitForTimeout(400);
+  await page.evaluate(list=>__snapshot(list),survivors);
+  await page.waitForFunction(()=>[...document.querySelectorAll('.desktop-list .desktop-avatar')].some(a=>a.getAnimations().length>0),null,{timeout:2000});
+  await page.waitForTimeout(40);
+  await page.evaluate(list=>__snapshot(list),survivors);
+  const stacked=await animationCounts();
+  assert(stacked.some(count=>count===1),`the reorder really was still running when the second commit landed (saw ${JSON.stringify(stacked)})`);
+  assert(stacked.every(count=>count<=1),`a commit during a reorder does not stack a second animation on one row (saw ${JSON.stringify(stacked)})`);
+  await page.waitForTimeout(500);
   assert.deepEqual(errors,[]);
-  checks.push('departing ghost keeps position and fades','rail height animation runs with motion enabled');
+  checks.push('departing ghost keeps position and fades','rail height animation runs with motion enabled','expanding and collapsing both animate','a mid-reorder commit does not stack animations');
   await context.close();
 }
 
@@ -307,17 +332,33 @@ async function railDesktopPath(){
     window.__emit('monitor-state',window.__state.snapshot);
   },{id:'codex:fixture',source:'codex',sessionId:'fixture',title:'独立悬浮框迁移验证',status:'wait',roundId:'r1',updatedAt:4102444800000,steps:[],pending:question});
   await rail.locator('.desktop-automatic-card').waitFor({state:'visible'});
-  await page.waitForFunction(()=>window.__regions().some(region=>region.height>44));
+  const cardBox=await rail.locator('.desktop-automatic-card').boundingBox();
+  // Wait for a region that is the card's own box grown by the 10px padding, not
+  // for "something taller than a row": the empty rail's own surface is 92px
+  // padded, so a height threshold alone would already be satisfied before the
+  // card existed and would prove nothing.
+  const padded=(region,box)=>Math.abs(region.x-(box.x-10))<2&&Math.abs(region.y-(box.y-10))<2
+    &&Math.abs(region.width-(box.width+20))<2&&Math.abs(region.height-(box.height+20))<2;
+  await page.waitForFunction(box=>window.__regions().some(region=>Math.abs(region.x-(box.x-10))<2&&Math.abs(region.y-(box.y-10))<2&&Math.abs(region.width-(box.width+20))<2&&Math.abs(region.height-(box.height+20))<2),cardBox);
   const withCard=await page.evaluate(()=>window.__regions());
   const avatarBox=await rail.locator('.desktop-avatar').boundingBox();
   assert(withCard.some(region=>Math.abs(region.x+region.width/2-(avatarBox.x+avatarBox.width/2))<2&&Math.abs(region.height-avatarBox.height)<2),'the avatar is reported as a clickable control');
   assert(withCard.some(region=>region.cursor==='grab'),'the drag grip is reported with the grab cursor');
-  const cardBox=await rail.locator('.desktop-automatic-card').boundingBox();
-  assert(withCard.some(region=>region.width>cardBox.width&&region.height>cardBox.height),'the automatic card is reported as a padded surface');
+  assert(withCard.some(region=>padded(region,cardBox)),'the automatic card is reported as a padded surface');
   assert(withCard.length>empty.length,'adding a session adds regions rather than replacing them');
-  // The dismiss affordance belongs to the card, so it must appear with it.
+  // Every control is reported at its own size, unpadded. Checking the preview
+  // matters because dropping its registration would still leave the region count
+  // growing thanks to the avatar, the card surface and the dismiss button.
+  const previewBox=await rail.locator('.desktop-preview').boundingBox();
+  assert(withCard.some(region=>Math.abs(region.x-previewBox.x)<1&&Math.abs(region.y-previewBox.y)<1&&Math.abs(region.width-previewBox.width)<1&&Math.abs(region.height-previewBox.height)<1),'the open-preview button is reported as a control at its own size');
   const dismissBox=await rail.locator('.desktop-dismiss').boundingBox();
-  assert(withCard.some(region=>Math.abs(region.x-dismissBox.x)<1&&Math.abs(region.width-dismissBox.width)<1),'the dismiss button is reported as a control, not as part of the card surface');
+  assert(withCard.some(region=>Math.abs(region.x-dismissBox.x)<1&&Math.abs(region.y-dismissBox.y)<1&&Math.abs(region.width-dismissBox.width)<1&&Math.abs(region.height-dismissBox.height)<1),'the dismiss button is reported as a control at its own size, not as part of the card surface');
+  // A hidden surface must contribute nothing. Padding is what makes this worth
+  // asserting: a 0x0 box would otherwise become a valid 20x20 region at a
+  // negative offset, which the host accepts and which would put a clickable hole
+  // in the corner of the window. The menu is hidden at this point.
+  assert(withCard.every(region=>region.x>=0&&region.y>=0),'no region sits outside the window, which is what a hidden surface would produce');
+  assert(await rail.locator('.desktop-context-menu').isHidden(),'the menu really is hidden while this is asserted');
   // Disposing must release every subscription: a snapshot after teardown must
   // not repaint the rail. The event has to be dispatched inside the frame —
   // dispatching it on the parent window never reaches the rail's own listener.

@@ -66,6 +66,19 @@ export function createHitRegions({ isBlocked }: HitRegionOptions) {
   };
 
   /**
+   * A surface counts only while it occupies space. `hidden` is checked separately
+   * because it is what the caller means, but a zero-sized box is the more
+   * dangerous case: padding a 0x0 box by 10px produces a perfectly valid 20x20
+   * region at a negative offset, which the host would happily accept as a
+   * clickable hole in the corner of the window.
+   */
+  const occupied = (element: HTMLElement) => {
+    if (element.hidden) return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+
+  /**
    * A control is hittable only while it is actually painted and reachable: a
    * `hidden` ancestor, a departing ghost, a disabled button or a zero-sized box
    * must not claim a rectangle, or the transparent area around it would swallow
@@ -89,7 +102,7 @@ export function createHitRegions({ isBlocked }: HitRegionOptions) {
     // Controls first: a button that sits on top of a surface must win the hit
     // test, and the host resolves overlaps in array order.
     for (const entry of controls.values()) if (hittable(entry.element)) regions.push(regionOf(entry));
-    for (const entry of surfaces.values()) if (!entry.element.hidden) regions.push(surfaceOf(entry));
+    for (const entry of surfaces.values()) if (occupied(entry.element)) regions.push(surfaceOf(entry));
     return regions;
   }
 

@@ -125,7 +125,9 @@ export function createRailController() {
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
-  // Measured at the end of the previous commit; the "before" half of every FLIP.
+  // The previous commit's resting layout, which React has already replaced by
+  // the time a commit is observable: the height and the visible avatar positions
+  // are the "before" halves of the two animations afterCommit() starts.
   const measured = {height: 0, avatars: new Map<string, number>()};
 
   const hitRegions: HitRegions = createHitRegions({isBlocked: () => welcome.blocking});
@@ -446,14 +448,32 @@ export function createRailController() {
    */
   function afterCommit() {
     if (strip) {
+      // A height animation overrides the cascade, so while one is running the
+      // element's box is not its layout height. The pre-migration render()
+      // always animated from what was on screen, because it read oldHeight
+      // before it touched the DOM — React has already committed by the time this
+      // runs, so when nothing is mid-flight the resting height has to come from
+      // `measured` instead. Cancelling first and measuring afterwards would snap
+      // the rail to its new height and then animate back out of it.
+      const animating = strip.getAnimations().length > 0;
+      const from = animating ? strip.getBoundingClientRect().height : measured.height;
       cancelHeightAnimations(strip);
       const nextHeight = strip.getBoundingClientRect().height;
-      const motion = animateHeight(strip, measured.height, nextHeight);
+      const motion = animateHeight(strip, from, nextHeight);
       if (motion) motion.onfinish = () => hitRegions.sync();
+      measured.height = nextHeight;
+      // Avatar positions are compared layout-to-layout, which is what render()
+      // meant by oldPositions. `offsetTop` rather than a rect: a rect includes
+      // any transform an in-flight reorder is applying, so a commit landing
+      // mid-animation would store the animated position as the baseline and the
+      // next commit would start a second, spurious animation on a row that never
+      // moved. offsetTop is also unaffected by the list's scroll, which a rect is
+      // not. Both properties share an offsetParent for every row, so the
+      // difference between them cancels out of the delta.
       const seen = new Set<string>();
       for (const [id, element] of avatars) {
         if (element.hidden) continue;
-        const top = element.getBoundingClientRect().top;
+        const top = element.offsetTop;
         const previous = measured.avatars.get(id);
         if (previous === undefined) animateArrival(element);
         else animateReorder(element, previous - top);
@@ -461,7 +481,6 @@ export function createRailController() {
         measured.avatars.set(id, top);
       }
       for (const id of [...measured.avatars.keys()]) if (!seen.has(id)) measured.avatars.delete(id);
-      measured.height = nextHeight;
     }
 
     if (cardEl && card) {
