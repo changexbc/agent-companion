@@ -4,6 +4,8 @@
 
 悬浮栏、头像、欢迎动画、空闲小灯、设置、托盘和原生监控服务已从 `agent-mac-office` 迁入。安装包不包含 3D 办公室、Three.js、模型或光照资源。
 
+两个窗口的前端已改用 React + TypeScript；共享的会话模型与设置 schema 仍是带类型 JSDoc 的 JS，供 collector 直接用 Node 加载。
+
 ## 开发和构建
 
 需要 Node.js 22.13+、npm、Rust stable，以及对应平台的 Tauri 2 编译工具链。当前迁移在 macOS 上验证；其他平台未验证。
@@ -27,6 +29,8 @@ npm run desktop:build         # 构建 macOS .app（包含 Rust 服务）
 ## 验证
 
 ```sh
+npm run typecheck             # tsc --noEmit，含前端 TS/TSX 与带 @ts-check 的共享 JS
+npm run lint                  # eslint，范围是 src/ 下已迁移的 TS/TSX
 npm test
 npm run test:rust
 npm run test:runtime
@@ -39,10 +43,37 @@ CODEG_RUNTIME_BINARY="$PWD/target/release/agent-studio-runtime" node --test test
 
 监控自动测试使用临时用户目录，避免更改真实 Agent Hook。UI 测试使用浏览器临时上下文；原生应用测试会短暂显示测试窗口并自动退出，不设置开机启动。`collector/` 是兼容性测试的 Node 参考实现，正式桌面应用只使用 Rust 服务，不依赖 Node 或 Python。
 
+## 前端结构
+
+两个窗口是两个独立的 Vite 入口，各自拥有一个 React root；跨窗口状态继续走原生事件与存储，没有共享的 Context。
+
+- `src/desktop/rail.tsx` / `settings.tsx`：入口，只负责挂载。
+- `src/desktop/components/`：视图。`SettingsForm` 是设置页；`Rail`／`SessionAvatar`／`SessionCard` 是悬浮栏。
+- `src/desktop/rail-controller.ts`：悬浮栏唯一的状态所有者，持有模型、静音集合、菜单、提示和欢迎动画。
+- `src/desktop/rail-animations.ts`：所有 Web Animations 调用。
+- `src/desktop/hit-regions.ts`：点击穿透用的显式表面注册表。
+- `src/components/ui/`：按需引入的 shadcn 源码，目前只有设置页在用。
+
+三条约定，违反它们会让「React 与控制器同时写同一个 DOM 属性」这类问题重新出现：
+
+1. `#desktop-rail` 是 React 的**容器**而不是 React 元素，所以 React 不写它的属性；`desktop-inactive`、`companion-motion-paused`、`welcome-blocking` 等由控制器写。
+2. 悬浮卡、自动问题卡、提示条是**按布局放置**的（是否可见取决于头像列表滚到哪里），它们的 `hidden` 与 `style.top` 属于控制器，JSX 里不为它们声明 `style` 或 `hidden`。
+3. 动画只在 `afterCommit()` 里启动，它跑在每次提交后的 layout effect 中，用「上一次提交结束时测量到的位置」作为起点。FLIP 基线用 `offsetTop` 而不是 rect：rect 会把正在跑的动画的 transform 算进去。
+
+悬浮栏不引入 Tailwind：那里没有 shadcn 组件，而 preflight 会覆盖旧样式表从未声明过的 UA 默认值，设置页迁移时就因此出过四个回归。
+
+### Node 共享的 JS 例外
+
+以下文件保持 JS 形式，因为 collector 直接用 Node 加载它们，不能要求转译：
+
+`src/settings-config.js`、`src/monitor/model.js`、`src/monitor/session-visibility.js`（及其 `codex-internal-prompts.json`）。
+
+它们都带 `// @ts-check` 与 JSDoc 类型，所以 `npm run typecheck` 会检查它们——`checkJs` 是关闭的，靠 pragma 逐个开启，避免把 `scripts/`、`tests/` 和 `collector/` 一起拖进来。
+
 ## 目录
 
-- `src/desktop/`：悬浮框、SVG 头像、欢迎动画和设置。
-- `src/monitor/`：会话生命周期、展示、提醒和跳转。
+- `src/desktop/`：悬浮框、SVG 头像、欢迎动画和设置（React + TypeScript，结构见下）。
+- `src/monitor/`：会话生命周期、展示、提醒和跳转；其中 `model.js` 与 `session-visibility.js` 是被 collector 共享的 JS。
 - `crates/agent-studio-core/`：监控与状态归一化。
 - `crates/agent-studio-runtime/`：本地共享监控服务及客户端。
 - `crates/agent-studio-desktop/`：Tauri 桌面集成，仅提供会话栏和设置窗口。

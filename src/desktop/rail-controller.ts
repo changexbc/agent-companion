@@ -592,15 +592,21 @@ export function createRailController() {
     reportError(error: unknown) { showError(error); },
 
     /**
-     * Escape returns focus to the avatar that opened the card. The pre-migration
-     * handler called hide() on both sides of the focus call; only the second one
-     * could still be observed, so this keeps the order and drops the duplicate.
+     * Escape closes the menu, closes the card and returns focus to the avatar
+     * that opened it.
+     *
+     * The second `hide()` is not redundant, and the pre-migration code was right
+     * to have two. Focusing the avatar fires its own focus handler, which shows
+     * the card again; without the second call the card reopens the instant it is
+     * dismissed and Escape appears to do nothing. Removing it as a duplicate was
+     * a real regression, caught by the keyboard assertion in qa-ui.mjs.
      */
     escape() {
       const id = card?.id ?? null;
       closeMenu();
       hide();
       if (id) avatars.get(id)?.focus();
+      hide();
     },
 
     replayWelcome() { welcomeController.play(); },

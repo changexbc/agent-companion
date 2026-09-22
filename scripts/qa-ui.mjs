@@ -67,6 +67,23 @@ try {
   await page.locator('.desktop-grip').click({button:'right'});
   const menu=await page.locator('[role=menuitem]').allTextContents();
   assert(menu.includes('悬浮窗设置'));assert(!menu.some(t=>/3D|办公室/.test(t)));
+  // Escape is the rail's whole keyboard story and had no coverage: it has to
+  // close the menu, close the card, and hand focus back to the row that opened
+  // it, or the rail becomes a keyboard trap. Focus rather than click opens the
+  // card, so nothing is launched.
+  await page.keyboard.press('Escape');
+  await page.locator('.desktop-context-menu').waitFor({state:'hidden'});
+  await page.locator('.desktop-avatar').first().focus();
+  await page.locator('.desktop-card').waitFor({state:'visible'});
+  // Focus has to start inside the card, or it never leaves the avatar and the
+  // return path is not exercised at all: the card's controls are removed when it
+  // closes, so without an explicit hand-back focus lands on the document body.
+  await page.locator('.desktop-preview').focus();
+  assert(await page.locator('.desktop-card').evaluate(card=>card.contains(document.activeElement)),'focus is inside the card before Escape');
+  await page.keyboard.press('Escape');
+  await page.locator('.desktop-card').waitFor({state:'detached'});
+  assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('data-session-id')),session.id,'Escape returns focus to the row that opened the card');
+  assert(await page.locator('.desktop-context-menu').isHidden(),'the menu stays closed');
   // Hold the first read open. The retry button must not be reachable while a read
   // is in flight, or a stale success can overwrite a failure the user already saw.
   holdRead=true;
