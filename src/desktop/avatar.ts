@@ -1,7 +1,7 @@
 import './avatar.css';
 
 // Nested groups keep ear pose, state follow-through and occasional twitches independent.
-function ear(side, x, y, shape) {
+function ear(side: string, x: number, y: number, shape: string) {
   return `<g class="companion-ear companion-ear-${side}" style="--ear-x:${x}px;--ear-y:${y}px"><g class="companion-ear-settle"><g class="companion-ear-tip">${shape}</g></g></g>`;
 }
 const animals = [
@@ -26,14 +26,17 @@ const bots = [
   '<rect x="14" y="15" width="73" height="73" rx="25" transform="rotate(-7 50 50)"/>',
   '<path d="M50 10 C57 10 88 47 88 63 C88 96 12 96 12 63 C12 46 43 10 50 10Z"/>',
 ];
-export function avatarIdentity(style, slot = 0) {
+export type AvatarStyle = 'animal' | 'bot';
+export type AvatarStatus = 'idle' | 'running' | 'wait' | 'done' | 'error' | 'offline';
+
+export function avatarIdentity(style: AvatarStyle, slot = 0) {
   const index = Number.isInteger(slot) && slot >= 0 ? slot : 0;
   const names = style === 'bot' ? ['多边形伙伴', '方块伙伴', '水滴伙伴'] : animalNames;
   const variant = index % names.length;
   return {variant, name: names[variant]};
 }
 const colors = ['#b9cb91', '#ebbd8f', '#a8c8c4', '#d6b0b4', '#b8b9d5', '#d5c482', '#a4c2a2'];
-const eyes = {
+const eyes: Record<AvatarStatus, string[]> = {
   idle: ['M40 45 Q40 51 40 57', 'M61 45 Q61 51 61 57'],
   running: ['M39 49 Q41 52 42 57', 'M60 48 Q62 51 63 56'],
   wait: ['M40 44 Q40 50 40 56', 'M61 44 Q61 50 61 56'],
@@ -41,39 +44,70 @@ const eyes = {
   error: ['M36 46 Q40 48 44 49', 'M61 47 Q61 52 61 58'],
   offline: ['M35 54 Q40 57 45 54', 'M56 54 Q61 57 66 54'],
 };
-export function createAvatar(style = 'animal', slot = 0) {
+
+/**
+ * Everything that distinguishes one portrait from another, without touching the
+ * DOM. React renders the wrapper `<svg>` from these values; `createAvatar` below
+ * builds the same element imperatively for the settings preview, which has no
+ * React tree of its own to live in.
+ */
+export function avatarParts(style: AvatarStyle, slot = 0) {
   const index = Number.isInteger(slot) && slot >= 0 ? slot : 0;
   const variant = avatarIdentity(style, index).variant;
   const character = style !== 'bot' && variant === 0 ? 'cat' : style !== 'bot' && variant === 3 ? 'rabbit' : 'other';
+  const resolved: AvatarStyle = style === 'bot' ? 'bot' : 'animal';
+  return {
+    index,
+    character,
+    style: resolved,
+    color: colors[index % colors.length],
+    shape: (style === 'bot' ? bots : animals)[variant],
+    variables: {
+      '--blink-time': `${5.3 + index % 5 * .73}s`,
+      '--motion-delay': `${-(index * 1.37 % 7)}s`,
+      '--ear-time': `${12.7 + index % 7 * 1.13}s`,
+      '--wait-time': `${9 + index % 4}s`,
+    } as Record<string, string>,
+  };
+}
+
+/**
+ * The inside of the portrait. `shape` is a static constant from this module, so
+ * React can inject it as markup; the eyelids stay real elements because their
+ * `d` is rewritten on every status change by `updateAvatar`.
+ */
+export function avatarBody(parts: ReturnType<typeof avatarParts>) {
+  return `<g class="companion-body"><g class="companion-attention"><g fill="${parts.color}">${parts.shape}</g><g class="companion-pointer"><g class="companion-look"><g class="companion-lids"><path/><path/></g></g></g></g></g>`;
+}
+
+export function createAvatar(style: AvatarStyle = 'animal', slot = 0) {
+  const parts = avatarParts(style, slot);
   const template = document.createElement('template');
-  template.innerHTML = `<svg class="companion-avatar desktop-portrait" viewBox="0 0 100 100" aria-hidden="true" data-character="${character}" data-style="${style === 'bot' ? 'bot' : 'animal'}"><g class="companion-body"><g class="companion-attention"><g fill="${colors[index % colors.length]}">${(style === 'bot' ? bots : animals)[avatarIdentity(style, index).variant]}</g><g class="companion-pointer"><g class="companion-look"><g class="companion-lids"><path/><path/></g></g></g></g></g></svg>`;
-  const node = template.content.firstElementChild;
-  node.style.setProperty('--blink-time', `${5.3 + index % 5 * .73}s`);
-  node.style.setProperty('--motion-delay', `${-(index * 1.37 % 7)}s`);
-  node.style.setProperty('--ear-time', `${12.7 + index % 7 * 1.13}s`);
-  node.style.setProperty('--wait-time', `${9 + index % 4}s`);
+  template.innerHTML = `<svg class="companion-avatar desktop-portrait" viewBox="0 0 100 100" aria-hidden="true" data-character="${parts.character}" data-style="${parts.style}">${avatarBody(parts)}</svg>`;
+  const node = template.content.firstElementChild as SVGSVGElement;
+  for (const [name, value] of Object.entries(parts.variables)) node.style.setProperty(name, value);
   updateAvatar(node, 'idle');
   return node;
 }
-export function updateAvatar(node, status) {
-  const state = status === 'aborted' || status === 'unknown' ? 'offline' : eyes[status] ? status : 'idle';
+export function updateAvatar(node: SVGSVGElement, status: string) {
+  const state: AvatarStatus = status === 'aborted' || status === 'unknown' ? 'offline' : (eyes as Record<string, string[]>)[status] ? status as AvatarStatus : 'idle';
   if (node.dataset.state === state) return;
   node.classList.toggle('companion-resuming', node.dataset.state === 'wait' && state === 'running');
   node.dataset.state = state;
   node.querySelectorAll('.companion-lids path').forEach((path, i) => path.setAttribute('d', eyes[state][i]));
 }
-export function pointAvatar(button, point) {
-  const node = button?.querySelector('.companion-pointer');
+export function pointAvatar(button: HTMLElement | null | undefined, point: {x: number; y: number} | null) {
+  const node = button?.querySelector<SVGGElement>('.companion-pointer');
   if (!node) return;
-  const avatar = button.querySelector('.companion-avatar');
-  avatar.classList.toggle('companion-attentive', Boolean(point));
-  const rect = button.getBoundingClientRect();
+  const avatar = button!.querySelector('.companion-avatar');
+  avatar?.classList.toggle('companion-attentive', Boolean(point));
+  const rect = button!.getBoundingClientRect();
   const x = point ? Math.max(-5, Math.min(5, (point.x - rect.x - rect.width / 2) / rect.width * 12)) : 0;
   const y = point ? Math.max(-3, Math.min(3, (point.y - rect.y - rect.height / 2) / rect.height * 8)) : 0;
   node.style.transform = `translate(${x}px,${y}px)`;
 }
 // Only animate avatars actually on screen; CSS handles the motion without a frame loop.
-export function observeAvatars(root) {
+export function observeAvatars(root: Element) {
   const media = matchMedia('(prefers-reduced-motion: reduce)');
   const visibility = () => root.classList.toggle('companion-system-paused', document.hidden || media.matches);
   const observer = new IntersectionObserver(entries => entries.forEach(({target, isIntersecting}) => target.classList.toggle('companion-visible', isIntersecting)));
@@ -81,8 +115,8 @@ export function observeAvatars(root) {
   media.addEventListener('change', visibility);
   visibility();
   return {
-    observe: node => observer.observe(node),
-    unobserve: node => observer.unobserve(node),
+    observe: (node: Element | null | undefined) => { if (node) observer.observe(node); },
+    unobserve: (node: Element | null | undefined) => { if (node) observer.unobserve(node); },
     dispose() { observer.disconnect(); document.removeEventListener('visibilitychange', visibility); media.removeEventListener('change', visibility); },
   };
 }

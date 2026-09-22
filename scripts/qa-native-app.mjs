@@ -42,6 +42,17 @@ try {
  const preferences=JSON.parse(await fs.readFile(path.join(out,'agent-studio-settings/report.json')));
  assert.equal(rail.avatars,1);assert.equal(rail.wait,1);assert.match(rail.text,/需要你确认/); // Existing native Codex adapter emits a generic question label.
  assert.equal(rail.connection,'connected');assert.equal(preferences.settingsReady,true);
+ // A blocked rail hides every real element with `visibility:hidden`, which is
+ // how `rail.text` once came back empty while the avatars were still in the DOM.
+ // Asserting the actual cause beats asserting the symptom.
+ //
+ // Note that `AGENT_STUDIO_HOME` does not isolate this: the welcome-seen flag
+ // lives in the WebView's own localStorage, alongside the bundle identifier, so
+ // a run on a machine that has already played the welcome skips it. Both paths
+ // are valid — `phase` is `idle` when skipped and a finish reason when played —
+ // and either way nothing may still be blocking by the time the report is taken.
+ assert.equal(rail.welcome.blocking,false,`the rail is not hidden behind the welcome overlay (phase ${rail.welcome.phase})`);
+ assert.equal(rail.welcome.running,false,'the welcome animation has finished');
  assert(!rail.menu.some(text=>/3D|办公室/.test(text)));
  assert(![...rail.resources,...preferences.resources].some(url=>/\.glb|\.exr|three|\/models\//i.test(url)));
  await fs.writeFile(path.join(out,'summary.json'),JSON.stringify({passed:true,labels,rail,settings:preferences},null,2));

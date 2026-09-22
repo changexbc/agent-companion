@@ -6,7 +6,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const server = await preview({preview:{host:'127.0.0.1',port:4191,strictPort:true}});
 const browser = await chromium.launch({headless:true});
 const context = await browser.newContext({viewport:{width:368,height:600},reducedMotion:'reduce'});
-const errors=[], failed=[], resources=[];
+const errors=[], failed=[], resources=[], checks=[];
 // One settings route drives every scenario through flags, so the tests never
 // depend on route-registration order.
 // - calls records the traffic, so a save can be asserted as one re-read + one write
@@ -164,14 +164,176 @@ try {
   assert.deepEqual(calls,['GET','PUT'],'a partial save still re-reads once and writes once');
   assert.equal(await page.locator('#save-status').textContent(),'部分设置可能已保存，请重试：prefs disk');
   assert.deepEqual(errors,[]);
-  // Focus rings are pseudo-class styles, so a default-state computed-style diff
-  // cannot see them. `outline-none` next to `focus-visible:outline-2` silently
-  // cancels the ring — `outline-none` sets `--tw-outline-style: none` on the
-  // element and `outline-2` reads that variable back as `outline-style` — which
-  // left the page with no ring at all. Assert the rule the migration replaced:
-  // `button:focus-visible,input:focus-visible,select:focus-visible{outline:2px
-  // solid #477d66;outline-offset:4px}`. rgb(71,125,102) is #477d66.
   assert(!resources.some(url=>/three|\.glb|\.exr|\/models\//i.test(url)));
-  await fs.writeFile('artifacts/ui/report.json',JSON.stringify({passed:true,errors,failed,menu,checks:['empty','running','wait reminder','quiet done','settings persistence','no retry while a read is in flight','row label toggles the switch','two submits in one task write once','save re-reads then writes once','source write failure is not reported as success','partial save is not reported as success','shared schema preserved','focus rings match the pre-migration rule','no 3D resources'],resources},null,2));
+  checks.push(
+    'empty','running','wait reminder','quiet done','settings persistence',
+    'no retry while a read is in flight','row label toggles the switch','two submits in one task write once',
+    'save re-reads then writes once','source write failure is not reported as success',
+    'partial save is not reported as success','shared schema preserved',
+    'focus rings match the pre-migration rule','no 3D resources',
+  );
+  await railMotion();
+  await railDesktopPath();
+  await fs.writeFile('artifacts/ui/report.json',JSON.stringify({passed:true,errors,failed,menu,checks},null,2));
   console.log('PASS: rail lifecycle, question reminder, quiet completion, settings persistence, no office resources');
 } finally {await browser.close();await new Promise(resolve=>server.httpServer.close(resolve));}
+
+/**
+ * The rail with motion enabled. Every automated screenshot diff runs under
+ * `prefers-reduced-motion: reduce`, which is exactly the path where `retire()`
+ * removes a row immediately — so the departing ghost is only ever exercised
+ * here. The observer records the ghost's box at the moment it appears, because
+ * a 200ms fade is too short to poll for reliably.
+ */
+async function railMotion(){
+  const context=await browser.newContext({viewport:{width:368,height:600},reducedMotion:'no-preference'});
+  await context.route('**/api/settings',route=>route.fulfill({json:defaultSettings()}));
+  await context.addInitScript(()=>{
+    localStorage.setItem('agent-studio.welcome.v1','1');
+    window.EventSource=class{constructor(){window.__stream=this;}close(){}};
+    window.__snapshot=sessions=>window.__stream.onmessage({data:JSON.stringify({version:1,ts:Date.now(),ready:true,sources:{codex:{state:'ok'}},sessions,events:[]})});
+  });
+  const page=await context.newPage();
+  page.on('pageerror',e=>errors.push(`motion: ${e.message}`));
+  await page.goto('http://127.0.0.1:4191/desktop.html');
+  await page.waitForFunction(()=>window.__stream?.onmessage);
+  await page.evaluate(()=>__snapshot([]));
+  await page.evaluate(()=>{
+    window.__ghosts=[];
+    const seen=new WeakSet();
+    new MutationObserver(()=>{
+      for(const node of document.querySelectorAll('.desktop-departing')){
+        if(seen.has(node))continue;
+        seen.add(node);
+        const r=node.getBoundingClientRect();
+        window.__ghosts.push({tag:node.tagName.toLowerCase(),x:r.x,y:r.y,width:r.width,height:r.height,inert:node.inert,animations:node.getAnimations().length});
+      }
+    }).observe(document.querySelector('#desktop-rail'),{childList:true,subtree:true});
+  });
+  const running={id:'codex:fixture',source:'codex',sessionId:'fixture',title:'独立悬浮框迁移验证',status:'running',roundId:'r1',updatedAt:4102444800000,steps:[],pending:[]};
+  await page.evaluate(s=>__snapshot([s]),running);
+  await page.locator('.desktop-avatar').waitFor();
+  // Let the entrance animation finish so the recorded box is the resting one.
+  await page.waitForTimeout(500);
+  const row=await page.locator('.desktop-avatar').boundingBox();
+  await page.evaluate(()=>__snapshot([]));
+  // The ghost only lives for its 200ms fade, so a missing one must fail fast and
+  // say so rather than timing out on a locator.
+  await page.locator('.desktop-departing').waitFor({state:'attached',timeout:2000}).catch(()=>{});
+  const ghosts=await page.evaluate(()=>window.__ghosts);
+  assert.equal(ghosts.length,1,'a row that leaves the list gets exactly one departing ghost');
+  const ghost=ghosts[0];
+  assert.equal(ghost.tag,'button','the avatar ghost is the same element type as the row it replaces');
+  assert(Math.abs(ghost.x-row.x)<1.5&&Math.abs(ghost.y-row.y)<1.5,'the ghost is pinned where the row was');
+  assert(Math.abs(ghost.width-row.width)<1.5&&Math.abs(ghost.height-row.height)<1.5);
+  assert.equal(ghost.animations,1,'the ghost fades instead of vanishing');
+  assert.equal(ghost.inert,true,'the ghost cannot be interacted with');
+  await page.locator('.desktop-departing').waitFor({state:'detached',timeout:3000});
+  assert.equal(await page.locator('.desktop-avatar').count(),0,'the real row is gone, only the ghost ever animated');
+  // Expanding the list grows the rail, and the growth is animated rather than
+  // snapped; reduced motion is asserted to skip it by the screenshot diff.
+  const ghostsBefore=await page.evaluate(()=>window.__ghosts.length);
+  await page.evaluate(list=>__snapshot(list),Array.from({length:10},(_,i)=>({...running,id:`codex:fixture-${i}`,sessionId:`fixture-${i}`})));
+  await page.locator('.desktop-overflow').waitFor({state:'visible'});
+  await page.locator('.desktop-overflow').click();
+  await page.waitForFunction(()=>document.querySelector('.desktop-strip').getAnimations().some(a=>a.effect?.getKeyframes().some(keyframe=>'height' in keyframe)),null,{timeout:2000});
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator('.desktop-avatar:visible').count(),10,'expanding reveals every row');
+  assert.equal(await page.evaluate(()=>window.__ghosts.length),ghostsBefore,'expanding and collapsing retires nothing');
+  assert.deepEqual(errors,[]);
+  checks.push('departing ghost keeps position and fades','rail height animation runs with motion enabled');
+  await context.close();
+}
+
+/**
+ * The rail as the desktop shell drives it.
+ *
+ * `host.ts` has an embedding path for exactly this: when the page runs inside
+ * another window that provides `__AGENT_STUDIO_EMBED_HOST__`, `isDesktop()` is
+ * true and every command goes through that host instead of Tauri. Running the
+ * rail in an iframe therefore exercises the native code path — `set_hit_regions`
+ * included — and makes the payload observable, which a browser build cannot do
+ * because it never reports hit regions at all.
+ */
+async function railDesktopPath(){
+  const context=await browser.newContext({viewport:{width:420,height:640},reducedMotion:'reduce'});
+  await context.route('**/api/settings',route=>route.fulfill({json:defaultSettings()}));
+  await context.route('**/qa-host.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body style="margin:0"></body></html>'}));
+  const page=await context.newPage();
+  page.on('pageerror',e=>errors.push(`host: ${e.message}`));
+  await page.goto('http://127.0.0.1:4191/qa-host.html');
+  await page.evaluate(()=>{
+    window.__hostCalls=[];
+    window.__listeners=new Map();
+    window.__state={snapshot:null,connected:true};
+    window.__AGENT_STUDIO_EMBED_HOST__={
+      desktop:true,
+      listen:async(event,handler)=>{
+        const handlers=window.__listeners.get(event)??[];
+        handlers.push(handler);
+        window.__listeners.set(event,handlers);
+        return()=>window.__listeners.set(event,(window.__listeners.get(event)??[]).filter(entry=>entry!==handler));
+      },
+      invoke:async(command,args)=>{
+        window.__hostCalls.push({command,args});
+        if(command==='plugin:agent-studio|monitor_state')return{snapshot:window.__state.snapshot,connected:window.__state.connected};
+        if(command==='plugin:agent-studio|rail_settings_get')return{avatarStyle:'animal',visibleCount:8,animation:true,autostart:false,autostartSupported:false};
+        return null;
+      },
+      enableNotifications:async()=>'granted',
+    };
+    window.__emit=(event,payload)=>{for(const handler of window.__listeners.get(event)??[])handler({payload});};
+    window.__regions=()=>{
+      const call=[...window.__hostCalls].reverse().find(entry=>entry.command==='plugin:agent-studio|set_hit_regions');
+      return call?call.args.regions:null;
+    };
+    const frame=document.createElement('iframe');
+    frame.id='rail';
+    frame.src='/desktop.html';
+    frame.style.cssText='width:368px;height:600px;border:0;display:block';
+    document.body.append(frame);
+  });
+  const rail=page.frameLocator('#rail');
+  await rail.locator('.desktop-empty').waitFor();
+  await page.waitForFunction(()=>window.__regions()!==null);
+  const empty=await page.evaluate(()=>window.__regions());
+  // The empty rail is a surface plus the grip and the menu's two items; nothing
+  // else exists yet, and the disclosure button is still hidden.
+  assert(empty.length>0,'the empty rail reports something to click');
+  assert(!empty.some(region=>region.width<=0||region.height<=0),'no zero-sized region is reported');
+  const question=[{id:'q1',text:'请选择下一步',questions:[{question:'请选择下一步',options:[{label:'继续'}]}]}];
+  await page.evaluate(session=>{
+    window.__state.snapshot={version:1,ts:1,ready:true,sources:{codex:{state:'ok'}},sessions:[session],events:[]};
+    window.__emit('monitor-state',window.__state.snapshot);
+  },{id:'codex:fixture',source:'codex',sessionId:'fixture',title:'独立悬浮框迁移验证',status:'wait',roundId:'r1',updatedAt:4102444800000,steps:[],pending:question});
+  await rail.locator('.desktop-automatic-card').waitFor({state:'visible'});
+  await page.waitForFunction(()=>window.__regions().some(region=>region.height>44));
+  const withCard=await page.evaluate(()=>window.__regions());
+  const avatarBox=await rail.locator('.desktop-avatar').boundingBox();
+  assert(withCard.some(region=>Math.abs(region.x+region.width/2-(avatarBox.x+avatarBox.width/2))<2&&Math.abs(region.height-avatarBox.height)<2),'the avatar is reported as a clickable control');
+  assert(withCard.some(region=>region.cursor==='grab'),'the drag grip is reported with the grab cursor');
+  const cardBox=await rail.locator('.desktop-automatic-card').boundingBox();
+  assert(withCard.some(region=>region.width>cardBox.width&&region.height>cardBox.height),'the automatic card is reported as a padded surface');
+  assert(withCard.length>empty.length,'adding a session adds regions rather than replacing them');
+  // The dismiss affordance belongs to the card, so it must appear with it.
+  const dismissBox=await rail.locator('.desktop-dismiss').boundingBox();
+  assert(withCard.some(region=>Math.abs(region.x-dismissBox.x)<1&&Math.abs(region.width-dismissBox.width)<1),'the dismiss button is reported as a control, not as part of the card surface');
+  // Disposing must release every subscription: a snapshot after teardown must
+  // not repaint the rail. The event has to be dispatched inside the frame —
+  // dispatching it on the parent window never reaches the rail's own listener.
+  const frameElement=await page.locator('#rail').elementHandle();
+  const railFrame=await frameElement.contentFrame();
+  await railFrame.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
+  const afterDispose=await page.evaluate(()=>window.__hostCalls.length);
+  await page.evaluate(()=>{
+    window.__emit('monitor-connection','offline');
+    window.__emit('monitor-state',{version:1,ts:9,ready:true,sources:{codex:{state:'ok'}},sessions:[],events:[]});
+  });
+  await page.waitForTimeout(150);
+  assert.equal(await rail.locator('.desktop-strip').getAttribute('data-connection'),'connected','a disposed rail ignores later events');
+  assert.equal(await rail.locator('.desktop-avatar').count(),1,'a disposed rail keeps the rows it last rendered');
+  assert.equal(await page.evaluate(()=>window.__hostCalls.length),afterDispose,'a disposed rail stops talking to the host');
+  assert.deepEqual(errors,[]);
+  checks.push('hit regions cover the visible surfaces and controls','hit regions ignore hidden and departing elements','dispose releases every subscription');
+  await context.close();
+}
