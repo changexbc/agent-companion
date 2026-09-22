@@ -10,6 +10,7 @@ import type {
   DesktopCommandMap,
   DesktopView,
 } from '../types/commands.js';
+import type { IntegrationAction } from '../types/integrations.js';
 import type { RailPreferencesState, Settings } from '../types/settings.js';
 import type { ConnectionState, Snapshot } from '../types/snapshot.js';
 
@@ -153,18 +154,19 @@ export async function hostFetch(url: string, options: {method?: string; headers?
   let command: CollectorRequestCommand;
   if (url === '/api/settings') command = options.method === 'PUT' ? 'settings_set' : 'settings_get';
   else if (url === '/api/settings/check') command = 'settings_check';
+  else if (url === '/api/integrations') command = options.method === 'POST' ? 'integrations_set' : 'integrations_get';
   else throw new Error('Unsupported desktop request');
   try {
-    const value = await desktopCommand('collector_request', { command, payload: options.body ? JSON.parse(options.body) as Settings : null });
+    const value = await desktopCommand('collector_request', { command, payload: options.body ? JSON.parse(options.body) as Settings | IntegrationAction : null });
     if (command === 'settings_set') {
-      publishAppearance(value);
+      publishAppearance(value as Settings);
       const count = (JSON.parse(options.body || '{}') as Partial<Settings>).monitor?.railVisibleCount;
       if (Number.isInteger(count) && count! >= 3 && count! <= 16) {
         try { localStorage.setItem(railPreferenceKey, String(count)); } catch {}
         window.dispatchEvent(new CustomEvent('agent-studio-rail-preference', {detail: count}));
       }
     }
-    return { ok: true, json: async () => url === '/api/settings' ? withRailPreference(value) : value };
+    return { ok: true, json: async () => url === '/api/settings' ? withRailPreference(value as Settings) : value };
   } catch (error) { return { ok: false, json: async () => ({ error: String(error) }) }; }
 }
 

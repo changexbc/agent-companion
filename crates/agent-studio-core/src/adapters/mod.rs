@@ -66,6 +66,8 @@ pub struct Collector {
     pub rows: HashMap<String, Value>,
     pub hook_count: u64,
     pub codeg: CodegHooks,
+    pub integrations: Value,
+    pub last_hook_at: HashMap<String, i64>,
     pub ide_live: HashMap<String, Value>,
     pub ide_hook_count: u64,
     pub workbuddy_live: HashMap<String, Value>,
@@ -85,7 +87,18 @@ impl Collector {
         } else {
             settings::defaults()
         };
+        let integrations = match std::fs::read(home.join(".agent-studio/integrations.json")) {
+            Ok(bytes) => {
+                let v: Value = serde_json::from_slice(&bytes).map_err(|_| "接入策略无效")?;
+                if !v.is_object() || v.as_object().unwrap().iter().any(|(k,v)| !settings::SOURCES.contains(&k.as_str()) || !v.is_boolean()) { return Err("接入策略无效".into()); }
+                v
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
+            Err(e) => return Err(e.to_string()),
+        };
         let c = Self {
+            integrations,
+            last_hook_at: HashMap::new(),
             hub: Hub::new(),
             settings,
             home,
@@ -207,14 +220,26 @@ impl Collector {
             _ => None,
         }
     }
+    pub fn integration_automatic(&self, source: &str) -> bool { self.integrations[source] != false }
+    pub fn set_integration_automatic(&mut self, source: &str, enabled: bool) -> Result<(), String> {
+        let mut next = self.integrations.clone();
+        next[source] = json!(enabled);
+        atomic_json(&self.home.join(".agent-studio/integrations.json"), &next)?;
+        self.integrations = next;
+        Ok(())
+    }
     pub fn ingest_hook(&mut self, p: &Value) -> bool {
-        match hook_agent(p) {
+        let source = hook_agent(p).to_string();
+        if !self.integration_automatic(&source) { return false; }
+        let accepted = match source.as_str() {
             "codebuddy-ide" => self.ingest_ide_hook(p),
             "workbuddy" => self.ingest_workbuddy_hook(p),
             "codex" => self.ingest_codex_hook(p),
             "codeg" => self.ingest_codeg_hook(p),
             _ => false,
-        }
+        };
+        if accepted { self.last_hook_at.insert(source, now()); }
+        accepted
     }
 }
 fn hook_agent(p: &Value) -> &str {

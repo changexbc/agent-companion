@@ -99,7 +99,7 @@ pub fn call(home: &Path, command: &str, payload: Value) -> Result<Value, String>
         .ok_or("监听服务端口无效")?;
     let token = info["token"].as_str().ok_or("监听认证信息缺失")?;
     let response: Value = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(if command.starts_with("settings_") {
+        .timeout(Duration::from_secs(if command.starts_with("settings_") || command.starts_with("integrations_") {
             12
         } else {
             3
@@ -169,6 +169,23 @@ impl Drop for Client {
 #[cfg(test)]
 mod tests {
     use super::codebuddy_edition_from_text;
+
+    #[test]
+    fn integration_rpc_allows_remote_status_latency() {
+        let home = std::env::temp_dir().join(format!("integration-rpc-{}", uuid::Uuid::new_v4()));
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        agent_studio_core::atomic_json(&super::endpoint(&home), &serde_json::json!({"protocol":super::PROTOCOL,"port":port,"token":"test"})).unwrap();
+        let worker = std::thread::spawn(move || {
+            let request = server.recv().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(3200));
+            request.respond(tiny_http::Response::from_string(r#"{"value":{"sources":[]}}"#)).unwrap();
+        });
+        let result = super::call(&home, "integrations_get", serde_json::json!({}));
+        worker.join().unwrap();
+        std::fs::remove_dir_all(home).unwrap();
+        assert_eq!(result.unwrap(), serde_json::json!({"sources":[]}));
+    }
 
     #[test]
     fn codebuddy_host_text_prefers_cn_before_the_international_prefix() {

@@ -21,7 +21,16 @@ export function createCollector({ home=os.homedir(),intervalMs=2000,monitorUrl=`
   return new CodeBuddyIdePoller(hub,{home,monitorUrl,dataDir:custom && !String(c.sources[id].path).endsWith('.vscdb')?p:null});
  }
  function clear(id){for(const [key,s]of hub.sessions)if(s.source===id)hub.sessions.delete(key);for(const [key,e]of hub.events)if(e.sessionId.startsWith(id+':'))hub.events.delete(key);}
+ let effectiveSettings;
  async function rebuild(before,next){
+  let policy={};
+  try { policy=JSON.parse(await fs.readFile(path.join(home,'.agent-studio/integrations.json'),'utf8')); }
+  catch(error) { if(error.code!=='ENOENT')throw error; }
+  if(!policy||Array.isArray(policy)||typeof policy!=='object'||Object.entries(policy).some(([id,v])=>!SOURCE_IDS.includes(id)||typeof v!=='boolean'))throw Error('接入策略无效');
+  before=effectiveSettings;
+  next=structuredClone(next);
+  for(const id of SOURCE_IDS)if(policy[id]===false)next.sources[id].enabled=false;
+  effectiveSettings=next;
   for(const id of SOURCE_IDS){
    if(before&&JSON.stringify(before.sources[id])===JSON.stringify(next.sources[id]))continue;
    if(id==='codeg'&&pollers[id])await pollers[id].disable();

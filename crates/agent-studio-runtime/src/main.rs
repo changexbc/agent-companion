@@ -1,7 +1,8 @@
+mod integrations;
+use integrations::install_hooks;
 use agent_studio_core::{
     adapters::{
-        codebuddy_settings_files, merge_codebuddy_ide_hooks, merge_workbuddy_hooks, workbuddy_edition,
-        workbuddy_settings_files, Collector,
+        Collector,
     },
     atomic_json, now, text,
 };
@@ -85,138 +86,6 @@ fn ensure_hook_binary(home: &Path) -> Result<PathBuf, String> {
     std::fs::rename(&temp, &hook_binary).map_err(|e| e.to_string())?;
     Ok(hook_binary)
 }
-fn install_hooks(c: &Collector) -> Result<(), String> {
-    let need = c.settings["sources"]["codex"]["enabled"] == true
-        || c.settings["sources"]["workbuddy"]["enabled"] == true
-        || c.settings["sources"]["codebuddy-ide"]["enabled"] == true;
-    if !need {
-        return Ok(());
-    }
-    let binary = ensure_hook_binary(&c.home)?;
-    install_codex_hook(c, &binary)?;
-    install_workbuddy_hook(c, &binary)?;
-    install_ide_hook(c, &binary)
-}
-fn install_codex_hook(c: &Collector, binary: &Path) -> Result<(), String> {
-    if c.settings["sources"]["codex"]["enabled"] != true {
-        return Ok(());
-    }
-    let dir = c.paths("codex")[0].clone();
-    if !dir.is_dir() {
-        return Ok(());
-    }
-    let command = hook_command(binary, &c.home, "codex", None);
-    let file = dir.join("hooks.json");
-    let mut doc = match std::fs::read(&file) {
-        Ok(b) => {
-            serde_json::from_slice::<Value>(&b).map_err(|_| "现有 Codex Hook 配置无效，未覆盖")?
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
-        Err(e) => return Err(e.to_string()),
-    };
-    if !doc.is_object() {
-        return Err("现有 Codex Hook 配置无效".into());
-    }
-    if doc["hooks"].is_null() {
-        doc["hooks"] = json!({});
-    }
-    if !doc["hooks"].is_object() {
-        return Err("现有 Codex Hook 配置无效".into());
-    }
-    let before = doc.clone();
-    for event in [
-        "SessionStart",
-        "UserPromptSubmit",
-        "PreToolUse",
-        "PostToolUse",
-        "PermissionRequest",
-        "Stop",
-        "Interrupt",
-        "SessionEnd",
-    ] {
-        let mut groups = doc["hooks"][event].as_array().cloned().unwrap_or_default();
-        for group in &mut groups {
-            if let Some(hooks) = group["hooks"].as_array_mut() {
-                hooks.retain(|h| {
-                    let c = text(&h["command"]);
-                    !c.contains("astra-office-status.py")
-                        && !(c.contains("agent-studio-runtime") && c.contains(" hook"))
-                });
-            }
-        }
-        groups.retain(|g| !g["hooks"].as_array().is_some_and(|a| a.is_empty()));
-        let mut h =
-            json!({"type":"command","command":command,"timeout":3,"statusMessage":"Agent Studio"});
-        if event != "SessionEnd" {
-            h["async"] = json!(true);
-        }
-        groups.push(json!({"hooks":[h]}));
-        doc["hooks"][event] = json!(groups);
-    }
-    if before != doc {
-        let backup = dir.join("hooks.agent-studio-before-rust.json");
-        if file.exists() && !backup.exists() {
-            atomic_json(&backup, &before)?;
-        }
-        atomic_json(&file, &doc)?;
-    }
-    Ok(())
-}
-fn install_workbuddy_hook(c: &Collector, binary: &Path) -> Result<(), String> {
-    if c.settings["sources"]["workbuddy"]["enabled"] != true {
-        return Ok(());
-    }
-    let custom = text(&c.settings["sources"]["workbuddy"]["path"]);
-    for file in workbuddy_settings_files(&c.home, &custom) {
-        let command = hook_command(
-            binary,
-            &c.home,
-            "workbuddy",
-            Some(workbuddy_edition(&file)),
-        );
-        let mut doc = match std::fs::read(&file) {
-            Ok(b) => serde_json::from_slice::<Value>(&b)
-                .map_err(|_| "现有 WorkBuddy Hook 配置无效，未覆盖")?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
-            Err(e) => return Err(e.to_string()),
-        };
-        let before = doc.clone();
-        doc = merge_workbuddy_hooks(doc, &command)?;
-        if before != doc {
-            if let Some(parent) = file.parent() {
-                let backup = parent.join("settings.agent-studio-before-hooks.json");
-                if file.exists() && !backup.exists() {
-                    atomic_json(&backup, &before)?;
-                }
-            }
-            atomic_json(&file, &doc)?;
-        }
-    }
-    Ok(())
-}
-fn install_ide_hook(c: &Collector, binary: &Path) -> Result<(), String> {
-    if c.settings["sources"]["codebuddy-ide"]["enabled"] != true { return Ok(()); }
-    let custom = text(&c.settings["sources"]["codebuddy-ide"]["path"]);
-    for file in codebuddy_settings_files(&c.home, &custom) {
-        // Both IDE editions share ~/.codebuddy hooks. Stamp edition at
-        // invocation from the parent app, not from this install path.
-        let command = hook_command(binary, &c.home, "codebuddy-ide", None);
-        let before = match std::fs::read(&file) {
-            Ok(b) => serde_json::from_slice::<Value>(&b).map_err(|_| "现有 CodeBuddy IDE Hook 配置无效，未覆盖")?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
-            Err(e) => return Err(e.to_string()),
-        };
-        let doc = merge_codebuddy_ide_hooks(before.clone(), &command)?;
-        if before != doc {
-            if let Some(parent) = file.parent() {
-                let backup = parent.join("settings.agent-studio-before-ide-hooks.json");
-                if file.exists() && !backup.exists() { atomic_json(&backup, &before)?; }
-            }
-            atomic_json(&file, &doc)?;
-        }
-    }
-    Ok(())
-}
 struct Notifications {
     seen: VecDeque<String>,
     initialized: bool,
@@ -290,6 +159,10 @@ fn serve() -> Result<(), String> {
     let (jobs, receiver) = std::sync::mpsc::channel::<Job>();
     let (updates, changes) = std::sync::mpsc::channel::<Value>();
     let initial_settings = collector.settings.clone();
+    let codeg_integrated = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+        collector.integration_automatic("codeg"),
+    ));
+    let worker_codeg_integrated = codeg_integrated.clone();
     let worker = std::thread::spawn(move || {
         let mut poll_at = Instant::now() - Duration::from_secs(5);
         loop {
@@ -303,6 +176,15 @@ fn serve() -> Result<(), String> {
                 Ok((command, payload, reply)) => {
                     let result = if command == "hook" {
                         Ok(json!(collector.ingest_hook(&payload)))
+                    } else if command == "integrations_get" {
+                        Ok(integrations::get(&collector))
+                    } else if command == "integrations_set" {
+                        {
+                            let result = integrations::set(&mut collector, &payload);
+                            // Policy is durable even when remote registration fails.
+                            worker_codeg_integrated.store(collector.integration_automatic("codeg"), std::sync::atomic::Ordering::Release);
+                            result
+                        }
                     } else {
                         collector.request(&command, &payload)
                     };
@@ -387,7 +269,7 @@ fn serve() -> Result<(), String> {
         // is the callback capability. It is never accepted by the RPC route.
         if request.url() == codeg_path && request.method() == &tiny_http::Method::Post
             && !request.headers().iter().any(|h|h.field.equiv("Origin")) {
-            if settings["sources"]["codeg"]["enabled"] != true {
+            if settings["sources"]["codeg"]["enabled"] != true || !codeg_integrated.load(std::sync::atomic::Ordering::Acquire) {
                 let _=request.respond(tiny_http::Response::empty(410));continue;
             }
             let mut body=Vec::new();
@@ -471,7 +353,7 @@ fn serve() -> Result<(), String> {
                     Ok(json!(true))
                 }
                 "settings_get" => Ok(settings.clone()),
-                command if matches!(command, "settings_set" | "settings_check") => {
+                command if matches!(command, "settings_set" | "settings_check" | "integrations_get" | "integrations_set") => {
                     let (send, receive) = std::sync::mpsc::channel();
                     jobs.send((command.into(), p.clone(), Some(send)))
                         .map_err(|_| "采集器已退出")?;

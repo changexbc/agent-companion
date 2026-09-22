@@ -100,7 +100,7 @@ async fn collector_request(
 ) -> Result<Value, String> {
     if !matches!(
         command.as_str(),
-        "settings_get" | "settings_set" | "settings_check"
+        "settings_get" | "settings_set" | "settings_check" | "integrations_get" | "integrations_set"
     ) {
         return Err("不支持的命令".into());
     }
@@ -173,10 +173,7 @@ pub fn open(app: &tauri::AppHandle, view: &str) -> Result<(), String> {
         _ => return Err("未知视图".into()),
     };
     if let Some(w) = app.get_webview_window(label) {
-        w.show().map_err(|e| e.to_string())?;
-        w.unminimize().map_err(|e| e.to_string())?;
-        w.set_focus().map_err(|e| e.to_string())?;
-        return Ok(());
+        return focus_settings(&w);
     }
     let mut window = WebviewWindowBuilder::new(
         app,
@@ -196,8 +193,16 @@ pub fn open(app: &tauri::AppHandle, view: &str) -> Result<(), String> {
             .traffic_light_position(tauri::LogicalPosition::new(16., 18.))
             .allow_link_preview(false);
     }
-    window.build().map_err(|e| e.to_string())?;
-    Ok(())
+    let window = window.build().map_err(|e| e.to_string())?;
+    focus_settings(&window)
+}
+
+fn focus_settings(window: &tauri::WebviewWindow) -> Result<(), String> {
+    window.show().map_err(|e| e.to_string())?;
+    window.unminimize().map_err(|e| e.to_string())?;
+    // On macOS set_focus also activates the application. Window construction
+    // alone can leave this accessory app behind the previously active app.
+    window.set_focus().map_err(|e| e.to_string())
 }
 pub fn toggle_rail(app: &tauri::AppHandle) {
     if !is_enabled(app) {

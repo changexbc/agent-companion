@@ -44,6 +44,10 @@ pub fn merge_codeg_webhooks(
     }
     Ok(json!(next))
 }
+fn owned_urls(saved: &Value) -> Result<Vec<String>, String> {
+    saved["owned"].as_array().ok_or("Codeg 注册记录无效")?
+        .iter().map(|v| v.as_str().map(str::to_owned).ok_or_else(|| "Codeg 注册记录无效".to_string())).collect()
+}
 fn post(auth: &(u16, String), method: &str, body: Value) -> Result<Value, String> {
     ureq::AgentBuilder::new()
         .timeout(Duration::from_millis(1500))
@@ -96,19 +100,14 @@ impl Collector {
             return Ok(());
         }
         self.codeg.next_attempt = Some(Instant::now() + Duration::from_secs(60));
-        let enabled = self.settings["sources"]["codeg"]["enabled"] == true;
+        let enabled = self.settings["sources"]["codeg"]["enabled"] == true && self.integration_automatic("codeg");
         let file = self.home.join(".agent-studio/codeg-webhook-native.json");
         let saved: Value = match std::fs::read(&file) {
             Ok(b) => serde_json::from_slice(&b).map_err(|_| "Codeg 注册记录无效，未覆盖")?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({"owned":[]}),
             Err(_) => return Err("Codeg 注册记录不可读".into()),
         };
-        let mut owned: Vec<String> = saved["owned"]
-            .as_array()
-            .ok_or("Codeg 注册记录无效")?
-            .iter()
-            .filter_map(|v| v.as_str().map(str::to_owned))
-            .collect();
+        let mut owned = owned_urls(&saved)?;
         if !enabled && owned.is_empty() {
             self.codeg.registered = true;
             return Ok(());
@@ -163,6 +162,8 @@ impl Collector {
         if existing != next {
             post(&auth, "set_chat_event_webhooks", json!({"webhooks":next}))?;
         }
+        let verified = post(&auth, "get_chat_event_webhooks", json!({}))?;
+        if verified != next { return Err("Codeg 未确认 Webhook 配置，请重试".into()); }
         atomic_json(
             &file,
             &json!({"owned":if url.is_empty(){vec![]}else{vec![url]}}),
@@ -179,6 +180,31 @@ impl Collector {
             },
         );
         Ok(())
+    }
+    pub fn inspect_codeg_webhook(&self) -> Result<(&'static str, String), String> {
+        let file = self.home.join(".agent-studio/codeg-webhook-native.json");
+        let owned = match std::fs::read(file) {
+            Ok(bytes) => serde_json::from_slice::<Value>(&bytes).map_err(|_| "Codeg 注册记录无效")?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({"owned":[]}),
+            Err(e) => return Err(e.to_string()),
+        };
+        let owned = owned_urls(&owned)?;
+        let pending = (!self.integration_automatic("codeg") || self.settings["sources"]["codeg"]["enabled"] != true) && !owned.is_empty();
+        let result = self.codeg_credentials().and_then(|auth| post(&auth, "get_chat_event_webhooks", json!({})));
+        match result {
+            Err(e) => Ok((if pending { "pending" } else { "unavailable" }, if pending { format!("待注销；{e}，请启动 Codeg 后重试") } else {e})),
+            Ok(value) => {
+                let list = value.as_array().ok_or("Codeg Webhook 配置无效")?;
+                let found = list.iter().any(|v| v["url"] == self.codeg.url && v["enabled"] == true);
+                if pending { Ok(("pending", "接入已暂停；待重试注销".into())) }
+                else if found {
+                    let filter = post(&self.codeg_credentials()?, "get_chat_event_filter", json!({}))?;
+                    if !CODEG_EVENTS.iter().all(|e| filter.as_array().is_some_and(|a|a.contains(&json!(e)))) { Ok(("partial", "Webhook 已注册，但事件开关不完整，请修复".into())) }
+                    else { Ok(("installed", "Webhook 已注册".into())) }
+                }
+                else { Ok(("not_installed", "Webhook 未注册；注册需要开启监听".into())) }
+            }
+        }
     }
     pub fn stop_codeg_webhook(&mut self) {
         self.settings["sources"]["codeg"]["enabled"] = json!(false);
