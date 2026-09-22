@@ -1,11 +1,12 @@
 import * as React from 'react';
+import { IntegrationManager } from './IntegrationManager.js';
 import { createAvatar } from '../avatar.js';
 import { desktopCommand, isDesktop } from '../host.js';
 import { agents, loadListening, saveListening } from '../listening.js';
 import { defaultPreferences, loadPreferences, savePreferences } from '../preferences.js';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { errorMessage } from '@/types/commands.js';
 import type { AvatarStyle, RailPreferencesState, SourceConfig, SourceId } from '@/types/settings.js';
@@ -24,11 +25,7 @@ const enabledOf = (sources: Record<SourceId, SourceConfig>) =>
 
 type Values = RailPreferencesState & { enabled: Record<SourceId, boolean> };
 
-/**
- * Rendered while the first read is in flight. The pre-migration page shipped the
- * same shape as static markup — including the supported-looking autostart hint,
- * which only becomes "请在独立桌面应用中设置" once a read has confirmed it.
- */
+// Placeholder values stay hidden until the first read has settled.
 const initialEnabled = allEnabled();
 const initialValues: Values = {...defaultPreferences(), animation: false, autostart: false, autostartSupported: true, enabled: initialEnabled};
 
@@ -99,6 +96,26 @@ export function SettingsForm() {
   // started in the same task, and a second submit in the same task.
   const readId = React.useRef(0);
   const saving = React.useRef(false);
+  const footerRef = React.useRef<HTMLElement>(null);
+  const [footerHeight, setFooterHeight] = React.useState(64);
+  const loading = !ready && !failed;
+
+  React.useLayoutEffect(() => {
+    const footer = footerRef.current;
+    if (!footer || loading) return;
+    const measure = () => setFooterHeight(Math.ceil(footer.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(footer);
+    return () => observer.disconnect();
+  }, [loading]);
+
+  React.useLayoutEffect(() => {
+    // This bootstrap shell lives outside the React root. Keep it across module
+    // startup and data loading, and show it again for an explicit retry.
+    const shell = document.getElementById('settings-loading');
+    if (shell) shell.hidden = !loading;
+  }, [loading]);
 
   const edit = React.useCallback((change: (current: Values) => Partial<Values>) => {
     setValues(current => ({...current, ...change(current)}));
@@ -107,6 +124,7 @@ export function SettingsForm() {
 
   const load = React.useCallback(async () => {
     const id = ++readId.current;
+    setFailed(false);
     setStatus('正在读取设置…');
     try {
       const [preferences, sources] = await Promise.all([loadPreferences(), loadListening()]);
@@ -129,11 +147,19 @@ export function SettingsForm() {
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !busy && isDesktop()) desktopCommand('close_settings').catch(() => {});
+      if (event.key === 'Escape' && !event.defaultPrevented && !busy && isDesktop()) desktopCommand('close_settings').catch(() => {});
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [busy]);
+
+  const acquireIntegration = () => {
+    if (saving.current) return false;
+    saving.current = true;
+    setBusy(true);
+    return true;
+  };
+  const releaseIntegration = () => { saving.current = false; setBusy(false); };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -161,7 +187,7 @@ export function SettingsForm() {
   };
 
   return (
-    <main className="rail-settings">
+    <main className="rail-settings settings-form" hidden={loading} style={{paddingBottom: footerHeight + 24}}>
       <header>
         <span className="eyebrow">AGENT COMPANION</span>
         <h1>悬浮窗设置</h1>
@@ -194,20 +220,24 @@ export function SettingsForm() {
               checked={values.animation}
               onChange={animation => edit(() => ({animation}))}
             />
-            <Label className="row">
-              <span>
+            <div className="row">
+              <Label htmlFor="visible-count">
                 <strong>默认显示数量</strong>
                 <small>更多会话收起在展开按钮中</small>
-              </span>
-              <NativeSelect
-                data-field="visibleCount"
-                aria-label="默认显示数量"
-                value={values.visibleCount}
-                onChange={event => edit(() => ({visibleCount: Number(event.target.value)}))}
+              </Label>
+              <Select
+                disabled={!ready || busy}
+                value={String(values.visibleCount)}
+                onValueChange={value => edit(() => ({visibleCount: Number(value)}))}
               >
-                {counts.map(count => <option key={count} value={count}>{count} 个</option>)}
-              </NativeSelect>
-            </Label>
+                <SelectTrigger id="visible-count" data-field="visibleCount" aria-label="默认显示数量">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent onEscapeKeyDown={event => event.stopPropagation()}>
+                  {counts.map(count => <SelectItem key={count} value={String(count)}>{count} 个</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </section>
           <section>
             <h2>Agent 监听</h2>
@@ -226,6 +256,7 @@ export function SettingsForm() {
                 />
               </Label>
             ))}
+            {ready && <IntegrationManager disabled={busy} acquire={acquireIntegration} release={releaseIntegration} />}
           </section>
           <section>
             <h2>启动</h2>
@@ -239,7 +270,7 @@ export function SettingsForm() {
               onChange={autostart => edit(() => ({autostart}))}
             />
           </section>
-          <footer>
+          <footer ref={footerRef}>
             <p role="status" id="save-status">{status}</p>
             <Button type="submit" data-action="save">保存更改</Button>
           </footer>

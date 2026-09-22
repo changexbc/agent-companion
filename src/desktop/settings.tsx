@@ -1,7 +1,6 @@
 import { SettingsForm } from './components/SettingsForm';
 import { installStandaloneWindowChrome } from './host.js';
 import { createRoot } from 'react-dom/client';
-import './settings.css';
 import '@/styles/tailwind.css';
 
 // Must run before React mounts so the drag strip stays the first child of <body>.

@@ -1,7 +1,25 @@
 :root{font-family:"PingFang SC","Hiragino Sans GB",sans-serif;color:#294239;background:#f4f7f4;font-synthesis:none;color-scheme:light}*{box-sizing:border-box}body{margin:0}.rail-settings{max-width:520px;margin:auto;padding:34px 28px 24px}.eyebrow{font-size:10px;font-weight:700;letter-spacing:2px;color:#729082}h1{font-size:25px;letter-spacing:-.8px;margin:9px 0}header p{font-size:12px;color:#7b8d83;margin:0 0 28px}h2{font-size:11px;letter-spacing:1px;color:#788d80;font-weight:500;margin:0 0 12px}fieldset{border:0;padding:0;margin:0;min-width:0}section+section{margin-top:23px}.styles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}.portraits{display:flex;justify-content:center;align-items:center;height:49px;margin-bottom:7px}.portraits svg{width:43px;height:43px}.styles strong{font-size:12px;display:block}.styles small{display:block;font-size:10px;color:#809187;margin-top:5px}.row{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:65px;border-bottom:1px solid #e0e8e1}.row strong{display:block;font-size:12px;font-weight:500}.row small{display:block;font-size:10px;color:#8a978e;margin-top:6px}footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:24px}footer p{font-size:10px;color:#7c8e82;overflow-wrap:anywhere}.window-chrome-drag{position:fixed;inset:0 0 auto;height:30px}.tauri-desktop .rail-settings{padding-top:45px}@media(prefers-reduced-motion:reduce){*{transition:none!important}}
 
-.section-hint{font-size:11px;line-height:1.6;color:#819187;margin:0 0 8px}.agent-row{min-height:49px}.agent-name{display:flex;align-items:center;gap:10px}.agent-name img{width:20px;height:20px;object-fit:contain}.rail-settings footer{position:sticky;bottom:0;background:#f4f7f4;padding:12px 0;margin-top:12px}
+.section-hint{font-size:11px;line-height:1.6;color:#819187;margin:0 0 8px}.agent-row{min-height:49px}.agent-name{display:flex;align-items:center;gap:10px}.agent-name img{width:20px;height:20px;object-fit:contain}.rail-settings footer{position:fixed;z-index:20;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:520px;background:#f4f7f4;padding:12px 28px;margin:0}
 /* The page owns its fieldset, so it also owns how a disabled fieldset reads. The
    switch is the only control that can also disable itself (unsupported autostart)
    and shows `not-allowed` there; inside a disabled fieldset it shows `default`. */
 fieldset:disabled button,fieldset:disabled select,fieldset:disabled input{cursor:default}
+
+/* Parsed with the HTML, before React loads; the same shell covers data reads. */
+.rail-settings[hidden]{display:none}
+#settings-loading{padding-top:45px}
+.settings-skeleton{animation:settings-pulse 1.5s ease-in-out infinite}
+.skeleton-heading{width:92px;height:12px;background:#dce6de;border-radius:4px;margin-bottom:12px}
+.skeleton-card{height:117px;border:1px solid #e0e8e1;border-radius:8px;background:#e6ede7}
+.skeleton-row,.skeleton-agent{height:65px;border-bottom:1px solid #e0e8e1;display:flex;align-items:center;justify-content:space-between}
+.skeleton-agent{height:49px}
+.skeleton-row::before,.skeleton-agent::before{content:"";width:132px;height:12px;background:#dce6de;border-radius:4px}
+.skeleton-row::after,.skeleton-agent::after{content:"";width:32px;height:18px;background:#dce6de;border-radius:10px}
+.skeleton-row+.skeleton-heading,.skeleton-agent+.skeleton-heading{margin-top:23px}
+.settings-loading-status{font-size:11px;color:#7c8e82;margin:24px 0 0}
+@keyframes settings-pulse{50%{opacity:.5}}
+@media(prefers-reduced-motion:reduce){.settings-skeleton{animation:none}}
+
+.integration-manager{margin-top:18px;border:1px solid #dce6de;border-radius:8px;padding:12px 14px;background:#f8faf7}.integration-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.integration-heading h3{font-size:12px;font-weight:600;margin:0}.integration-item{border-top:1px solid #e0e8e1;padding:14px 0}.integration-item:last-of-type{padding-bottom:2px}.integration-title{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.integration-title strong{font-size:12px;font-weight:500}.integration-title strong span{font-size:10px;color:#7b8d83;margin-left:5px}.integration-badge{font-size:10px;color:#587363;background:#e8efe8;border-radius:4px;padding:3px 6px}.integration-badge[data-state=error],.integration-badge[data-state=partial],.integration-badge[data-state=pending]{color:#856222;background:#f5ecd9}.integration-detail,.integration-message{font-size:11px;line-height:1.6;color:#718478;margin:8px 0;overflow-wrap:anywhere}.integration-message:empty{display:none}.integration-item details{font-size:10px;color:#718478;margin-top:8px}.integration-item summary{cursor:pointer;width:fit-content}.integration-item code{display:block;margin-top:5px;overflow-wrap:anywhere;font-size:10px}.integration-actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.integration-manager button{font-size:11px;padding:6px 10px;min-height:30px}.integration-item summary:focus-visible{outline:2px solid #477d66;outline-offset:4px}

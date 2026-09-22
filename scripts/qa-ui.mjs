@@ -20,6 +20,8 @@ let signalReadStarted=()=>{}, releaseRead=()=>{};
 const readStarted=new Promise(resolve=>{signalReadStarted=resolve;});
 const readReleased=new Promise(resolve=>{releaseRead=resolve;});
 let held=false;
+// Integration actions have their own dedicated harness; keep this fixture stable.
+await context.route('**/api/integrations', route => route.fulfill({json:{sources:[]}}));
 await context.route('**/api/settings', async route => {
   const method=route.request().method();
   calls.push(method);
@@ -50,6 +52,9 @@ try {
   await page.waitForFunction(()=>window.__stream?.onmessage);
   await page.evaluate(()=>__snapshot([]));
   await page.locator('.desktop-empty').waitFor({state:'visible'});
+  assert.equal(await page.locator('.desktop-empty [data-character=cat][data-state=sleep]').count(),1,'empty launch defaults to a sleeping cat');
+  assert.equal(await page.locator('.desktop-empty [data-session-id]').count(),0);
+  assert.equal(await page.locator('.desktop-empty').getAttribute('title'),'暂无任务，小猫正在休息');
   await page.screenshot({path:'artifacts/ui/empty.png'});
   const session={id:'codex:fixture',source:'codex',sessionId:'fixture',title:'独立悬浮框迁移验证',status:'running',roundId:'r1',updatedAt:Date.now(),steps:[],pending:[]};
   await page.evaluate(s=>__snapshot([s]),session);
@@ -96,7 +101,8 @@ try {
   const codexSwitch=page.locator('[data-field=source-codex]');
   assert.equal(await codexSwitch.getAttribute('aria-checked'),'true');
   await page.locator('button[data-style=bot]').click();
-  await page.locator('[data-field=visibleCount]').selectOption('5');
+  await page.getByRole('combobox', {name:'默认显示数量'}).click();
+  await page.getByRole('option', {name:'5 个',exact:true}).click();
   await codexSwitch.click();
   assert.equal(await codexSwitch.getAttribute('aria-checked'),'false');
   // The row itself is the label, so the gap between the text and the switch toggles too.
@@ -144,13 +150,51 @@ try {
     if(!stop)break;
     rings.push(stop);
   }
-  assert.equal(rings.length,9,'every enabled control is reachable by Tab, and none is skipped');
+  assert.equal(rings.length,10,'existing controls plus integration refresh are reachable by Tab');
   for(const stop of rings)assert.equal(stop.ring,'2px solid rgb(71, 125, 102) @4px',`${stop.tag}[${stop.field}] keeps the pre-migration focus ring`);
   assert.equal(await page.locator('button[data-style=bot]').getAttribute('aria-pressed'),'true');
-  assert.equal(await page.locator('[data-field=visibleCount]').inputValue(),'5');
+  assert.equal(await page.locator('[data-field=visibleCount]').innerText(),'5 个');
   assert.equal(await page.locator('[data-field=source-codex]').getAttribute('aria-checked'),'false');
   await page.setViewportSize({width:480,height:700});
   await page.evaluate(()=>window.scrollTo(0,0));
+  for (const viewport of [{width:480,height:700},{width:420,height:520}]) {
+    await page.setViewportSize(viewport);
+    for (const position of [0,0.5,1]) {
+      const geometry=await page.evaluate(position=>{
+        window.scrollTo(0,(document.documentElement.scrollHeight-innerHeight)*position);
+        const footer=document.querySelector('footer').getBoundingClientRect();
+        const lastRow=document.querySelector('[data-field=autostart]').closest('.row').getBoundingClientRect();
+        return {bottom:footer.bottom,top:footer.top,lastRowBottom:lastRow.bottom,height:innerHeight};
+      },position);
+      assert(Math.abs(geometry.bottom-geometry.height)<1,'save bar stays at viewport bottom throughout scrolling');
+      if(position===1)assert(geometry.lastRowBottom<=geometry.top,'last setting is not covered by the save bar');
+    }
+    await page.screenshot({path:`artifacts/ui/settings-bottom-${viewport.width}.png`});
+  }
+  await page.setViewportSize({width:480,height:700});
+  await page.evaluate(()=>window.scrollTo(0,0));
+  const countSelect=page.getByRole('combobox',{name:'默认显示数量'});
+  // Radix dismisses an open popup on window resize. Let the viewport resize
+  // event finish before testing keyboard opening, otherwise it closes the popup.
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  await countSelect.press('ArrowDown');
+  await page.getByRole('listbox').waitFor();
+  await page.waitForFunction(()=>document.activeElement?.getAttribute('role')==='option');
+  assert.equal(await page.getByRole('option').count(),14);
+  await page.keyboard.press('End');
+  await page.waitForFunction(()=>document.activeElement?.textContent==='16 个');
+  await page.keyboard.press('Enter');
+  await page.getByRole('listbox').waitFor({state:'hidden'});
+  assert.equal(await countSelect.innerText(),'16 个','keyboard can reach the last option');
+  await countSelect.click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('listbox').waitFor({state:'hidden'});
+  assert(await countSelect.evaluate(el=>el===document.activeElement),'Escape returns focus to the select');
+  await countSelect.click();
+  await page.getByRole('option',{name:'5 个',exact:true}).click();
+  await countSelect.click();
+  await page.screenshot({path:'artifacts/ui/settings-select.png'});
+  await page.keyboard.press('Escape');
   // The switch thumb animates on load; wait it out so the screenshot is stable.
   await page.waitForTimeout(300);
   await page.screenshot({path:'artifacts/ui/settings.png',fullPage:true});
@@ -189,11 +233,65 @@ try {
     'partial save is not reported as success','shared schema preserved',
     'focus rings match the pre-migration rule','no 3D resources',
   );
+  await railMigrationRegressions();
   await railMotion();
   await railDesktopPath();
   await fs.writeFile('artifacts/ui/report.json',JSON.stringify({passed:true,errors,failed,menu,checks},null,2));
   console.log('PASS: rail lifecycle, question reminder, quiet completion, settings persistence, no office resources');
 } finally {await browser.close();await new Promise(resolve=>server.httpServer.close(resolve));}
+
+async function railMigrationRegressions(){
+  const context=await browser.newContext({viewport:{width:368,height:600},reducedMotion:'no-preference'});
+  try {
+    await context.addInitScript(()=>{
+      localStorage.setItem('agent-studio.welcome.v1','1');
+      window.EventSource=class{constructor(){window.__stream=this;}close(){}};
+      window.__snapshot=sessions=>window.__stream.onmessage({data:JSON.stringify({version:1,ts:Date.now(),ready:true,sources:{codex:{state:'ok'}},sessions,events:[]})});
+      window.__cardEntrances=0;
+      const animate=Element.prototype.animate;
+      Element.prototype.animate=function(...args){
+        if(this.classList.contains('desktop-automatic-card'))window.__cardEntrances++;
+        return animate.apply(this,args);
+      };
+    });
+    const page=await context.newPage();
+    page.on('pageerror',error=>errors.push(`migration: ${error.message}`));
+    await page.goto('http://127.0.0.1:4191/desktop.html');
+    await page.waitForFunction(()=>window.__stream?.onmessage);
+    const session={id:'codex:regression',source:'codex',sessionId:'regression',title:'迁移回归验证',status:'running',roundId:'r1',updatedAt:4102444800000,steps:[],pending:[]};
+    await page.evaluate(s=>__snapshot([s]),session);
+    await page.locator('.desktop-avatar').waitFor();
+    await page.waitForTimeout(500);
+    session.status='wait';session.pending=[{id:'q1',text:'请选择下一步'}];
+    await page.evaluate(s=>__snapshot([s]),session);
+    await page.locator('.desktop-automatic-card').waitFor();
+    await page.waitForTimeout(350);
+    const entrances=await page.evaluate(()=>window.__cardEntrances);
+    assert(entrances>0,'the initial automatic card really animates');
+    await page.evaluate(s=>__snapshot([s]),session);
+    await page.waitForTimeout(100);
+    const repeated=await page.evaluate(()=>window.__cardEntrances);
+    await page.locator('.desktop-grip').click({button:'right'});
+    await page.locator('.desktop-context-menu').waitFor({state:'visible'});
+    await page.locator('.desktop-grip').click();
+    const menuClosed=await page.locator('.desktop-context-menu').isHidden();
+    await page.keyboard.press('Escape');
+    const eyes=()=>page.locator('.desktop-list .companion-lids path').evaluateAll(paths=>paths.map(path=>path.getAttribute('d')));
+    const before=await eyes();
+    assert(before.length===2&&before.every(Boolean),'the waiting avatar starts with two drawn eyes');
+    const styles=[];
+    for(const avatarStyle of ['bot','animal']){
+      await page.evaluate(avatarStyle=>{
+        localStorage.setItem('astra.desktop.preferences.v1',JSON.stringify({avatarStyle,visibleCount:8,animation:true}));
+        window.dispatchEvent(new StorageEvent('storage',{key:'astra.desktop.preferences.v1'}));
+      },avatarStyle);
+      await page.locator(`.desktop-list svg[data-style=${avatarStyle}]`).waitFor();
+      styles.push(await eyes());
+    }
+    assert.deepEqual({replays:repeated-entrances,menuClosed,styles},{replays:0,menuClosed:true,styles:[before,before]},'unchanged snapshots preserve animation, outside clicks close menus, and both style switches preserve eyes');
+    checks.push('unchanged snapshots do not replay reminder entrance','outside click closes the rail menu','both avatar style switches preserve status eyes');
+  } finally {await context.close();}
+}
 
 /**
  * The rail with motion enabled. Every automated screenshot diff runs under
@@ -234,20 +332,16 @@ async function railMotion(){
   await page.waitForTimeout(500);
   const row=await page.locator('.desktop-avatar').boundingBox();
   await page.evaluate(()=>__snapshot([]));
-  // The ghost only lives for its 200ms fade. Wait on the observer's own record
-  // rather than on a locator whose rejection would be swallowed, so a missing
-  // ghost fails on the assertion below with its own message.
-  await page.waitForFunction(()=>window.__ghosts.length===1,null,{timeout:2000}).catch(()=>{});
-  const ghosts=await page.evaluate(()=>window.__ghosts);
-  assert.equal(ghosts.length,1,'a row that leaves the list gets exactly one departing ghost');
-  const ghost=ghosts[0];
-  assert.equal(ghost.tag,'button','the avatar ghost is the same element type as the row it replaces');
-  assert(Math.abs(ghost.x-row.x)<1.5&&Math.abs(ghost.y-row.y)<1.5,'the ghost is pinned where the row was');
-  assert(Math.abs(ghost.width-row.width)<1.5&&Math.abs(ghost.height-row.height)<1.5);
-  assert.equal(ghost.animations,1,'the ghost fades instead of vanishing');
-  assert.equal(ghost.inert,true,'the ghost cannot be interacted with');
-  await page.locator('.desktop-departing').waitFor({state:'detached',timeout:3000});
-  assert.equal(await page.locator('.desktop-avatar').count(),0,'the real row is gone, only the ghost ever animated');
+  await page.locator('.desktop-sleeping').waitFor();
+  const sleeping=await page.locator('.desktop-sleeping').boundingBox();
+  assert(Math.abs(sleeping.x-row.x)<1.5&&Math.abs(sleeping.y-row.y)<1.5,'the last portrait falls asleep at the same position');
+  assert.equal(await page.locator('.desktop-departing').count(),0,'the last avatar is not also retired as a ghost');
+  assert.equal(await page.locator('.desktop-sleeping [data-state="sleep"]').count(),1);
+  assert.equal(await page.locator('.desktop-sleeping [data-character="cat"]').count(),1);
+  assert.equal(await page.locator('.desktop-sleeping .sleep-symbols').textContent(),'zZZ');
+  assert.equal(await page.locator('.desktop-avatar').count(),0,'the sleeping portrait is not a session');
+  await page.waitForTimeout(900);
+  await page.screenshot({path:'artifacts/ui/sleeping-cat.png'});
   // Expanding the list grows the rail, and the growth is animated rather than
   // snapped; reduced motion is asserted to skip it by the screenshot diff.
   const ghostsBefore=await page.evaluate(()=>window.__ghosts.length);
@@ -264,6 +358,17 @@ async function railMotion(){
   assert.equal(await page.locator('.desktop-avatar:visible').count(),8,'collapsing hides the overflow again');
   assert.equal(await page.locator('.desktop-overflow').getAttribute('aria-expanded'),'false');
   assert.equal(await page.evaluate(()=>window.__ghosts.length),ghostsBefore,'expanding and collapsing retires nothing');
+  // Hover raises the portrait by 1px; refreshed snapshots must not move its card.
+  const hoverRow=page.locator('.desktop-list .desktop-avatar').nth(1);
+  await hoverRow.hover();
+  await page.waitForTimeout(350);
+  const cardAnchor=()=>page.locator('#desktop-session-card').evaluate(el=>({top:el.style.top,pointer:el.style.getPropertyValue('--pointer-top')}));
+  const anchorBefore=await cardAnchor();
+  await page.evaluate(list=>__snapshot(list),ten);
+  await page.waitForTimeout(100);
+  assert.deepEqual(await cardAnchor(),anchorBefore,'hover transform does not shift the card on a snapshot');
+  await page.mouse.move(0,550);
+  await page.waitForTimeout(400);
   // A FLIP baseline taken from a rect would include the transform of a reorder
   // that is still running, so a commit landing mid-animation would stack a
   // second, spurious animation on a row that never moved. Only rows inside the
@@ -283,7 +388,16 @@ async function railMotion(){
   assert(stacked.every(count=>count<=1),`a commit during a reorder does not stack a second animation on one row (saw ${JSON.stringify(stacked)})`);
   await page.waitForTimeout(500);
   assert.deepEqual(errors,[]);
-  checks.push('departing ghost keeps position and fades','rail height animation runs with motion enabled','expanding and collapsing both animate','a mid-reorder commit does not stack animations');
+  // The last visible identity survives as appearance only, including non-cat variants.
+  const finalPortrait=await page.locator('.desktop-list .desktop-avatar:visible .companion-avatar').last().evaluate(el=>({character:el.dataset.character,style:el.dataset.style,shape:el.querySelector('.companion-attention > g').innerHTML}));
+  await page.evaluate(()=>__snapshot([]));
+  await page.locator('.desktop-sleeping').waitFor();
+  const restingPortrait=await page.locator('.desktop-sleeping .companion-avatar').evaluate(el=>({character:el.dataset.character,style:el.dataset.style,shape:el.querySelector('.companion-attention > g').innerHTML}));
+  assert.deepEqual(restingPortrait,finalPortrait,'the final animal keeps its shape and color');
+  await page.evaluate(s=>__snapshot([s]),running);
+  await page.locator('.desktop-list .desktop-avatar').waitFor();
+  assert.equal(await page.locator('.desktop-sleeping').count(),0,'new work removes the sleeping placeholder');
+  checks.push('last avatar falls asleep in place and wakes for new work','rail height animation runs with motion enabled','expanding and collapsing both animate','a mid-reorder commit does not stack animations');
   await context.close();
 }
 
