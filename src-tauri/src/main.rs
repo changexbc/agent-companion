@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod icons;
 #[cfg(all(target_os = "macos", feature = "diagnostics"))]
 mod native_qa;
 use tauri::{
@@ -44,7 +45,8 @@ fn main() {
             let quit = MenuItem::with_id(app, "quit", "退出 Agent Companion", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&rail, &settings, &quit])?;
             TrayIconBuilder::with_id("agent-companion")
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(icons::tray_icon())
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("Agent Companion")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
