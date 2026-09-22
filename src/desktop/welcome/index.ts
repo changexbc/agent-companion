@@ -1,7 +1,6 @@
 import { createLineCat, type LineCatRenderer } from './cat-motion.js';
 import './welcome.css';
 
-const seenKey = 'agent-studio.welcome.v1';
 const eye = (id: string) => `<g id="eye-${id}"><path d="M0-4.8Q0 0 0 4.8" fill="none" stroke="#263c31" stroke-width="4.4" stroke-linecap="round"/></g>`;
 
 /**
@@ -14,8 +13,12 @@ const eye = (id: string) => `<g id="eye-${id}"><path d="M0-4.8Q0 0 0 4.8" fill="
  */
 function fillScene(svg: SVGSVGElement, width: number, height: number) {
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  svg.innerHTML = `<path id="far-legs" fill="#fff" stroke="#363833" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
-    <path id="living-line" fill="#fff" stroke="#30332f" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+  svg.innerHTML = `<defs><linearGradient id="welcome-spectrum" gradientUnits="userSpaceOnUse">
+      <stop offset="0"/><stop offset=".125"/><stop offset=".25"/><stop offset=".375"/>
+      <stop offset=".5"/><stop offset=".625"/><stop offset=".75"/><stop offset=".875"/><stop offset="1"/>
+    </linearGradient></defs>
+    <path id="far-legs" fill="#fff" stroke="url(#welcome-spectrum)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+    <path id="living-line" fill="#fff" stroke="url(#welcome-spectrum)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
     <g id="eyes">${eye('left')}${eye('right')}</g>`;
 }
 
@@ -29,7 +32,6 @@ export interface RailWelcomeState {
 export interface RailWelcomeOptions {
   /** The strip, measured for the character's scale and start point. */
   rail: () => HTMLElement | null;
-  storage?: Storage | null;
   auto?: boolean;
   /** Phase changes only; the per-frame elapsed value has its own channel. */
   onStateChange: (state: RailWelcomeState) => void;
@@ -50,7 +52,7 @@ export interface RailWelcome {
 
 // One bounded animation in the existing transparent rail WebView. No extra window,
 // synthetic sessions, collector traffic, timers or RAF survive completion.
-export function createRailWelcome({ rail, storage, auto = false, onStateChange, onElapsed }: RailWelcomeOptions): RailWelcome {
+export function createRailWelcome({ rail, auto = false, onStateChange, onElapsed }: RailWelcomeOptions): RailWelcome {
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   let preferences: {animation?: boolean} | null = null;
   let urgent = false, disposed = false, host: SVGSVGElement | null = null, renderer: LineCatRenderer | null = null;
@@ -58,8 +60,8 @@ export function createRailWelcome({ rail, storage, auto = false, onStateChange, 
   let active = true, started = 0, elapsed = 0, bounds: DOMRect | null = null, consumed = false;
   let blocking = false, running = false, phase = 'idle';
   let pendingPlay: {bounds: DOMRect; motionScale: number} | null = null;
-  let seen = false; try { seen = storage?.getItem(seenKey) === '1'; } catch {}
-  let pending = auto && !seen && !reduced.matches;
+  // Each new rail controller is a new launch; previous launches must not suppress it.
+  let pending = auto && !reduced.matches;
 
   function publish(next: Partial<RailWelcomeState>) {
     const beforeBlocking = blocking;
@@ -107,7 +109,6 @@ export function createRailWelcome({ rail, storage, auto = false, onStateChange, 
     fillScene(host, innerWidth, innerHeight);
     renderer = createLineCat(host, {rail: {x: rect.x, y: rect.y, width: rect.width, height: rect.height}, motionScale});
     elapsed = 0; consumed = true;
-    try { storage?.setItem(seenKey, '1'); } catch {}
     started = performance.now();
     renderer.render(0); onElapsed(0);
     const tick = (now: number) => {

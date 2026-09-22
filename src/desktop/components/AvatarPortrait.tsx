@@ -14,11 +14,22 @@ import { avatarBody, avatarParts, updateAvatar, type AvatarStyle } from '../avat
  * changed — so running it after every render costs nothing and keeps the node
  * correct even when React has just replaced the markup for a new avatar style.
  */
-export function AvatarPortrait({style, slot, status}: {style: AvatarStyle; slot: number; status: string}) {
+export function AvatarPortrait({style, slot, status, initialStatus}: {style: AvatarStyle; slot: number; status: string; initialStatus?: string}) {
   const parts = React.useMemo(() => avatarParts(style, slot), [style, slot]);
   const node = React.useRef<SVGSVGElement | null>(null);
+  const previousParts = React.useRef(parts);
   React.useLayoutEffect(() => {
-    if (node.current) updateAvatar(node.current, status);
+    if (!node.current) return;
+    // Replacing the inner markup creates blank eye paths while the outer SVG
+    // retains its status marker. Invalidate that marker before the usual update.
+    if (previousParts.current !== parts) delete node.current.dataset.state;
+    previousParts.current = parts;
+    if (!node.current.dataset.state && initialStatus) {
+      updateAvatar(node.current, initialStatus);
+      // Establish the starting eyelids before the CSS path transition to sleep.
+      node.current.getBoundingClientRect();
+    }
+    updateAvatar(node.current, status);
   });
   return (
     <svg

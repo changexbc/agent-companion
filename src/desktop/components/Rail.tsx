@@ -6,7 +6,7 @@ import type { ConnectionState } from '../../types/snapshot.js';
 import type { RailItem } from '../rail-model.js';
 import type { DepartingGhost, RailController } from '../rail-controller.js';
 import { AvatarPortrait } from './AvatarPortrait.js';
-import { IdleLamp } from './IdleLamp.js';
+import { SleepingAvatar } from './SleepingAvatar.js';
 import { SessionAvatar } from './SessionAvatar.js';
 import { SessionCard } from './SessionCard.js';
 import { ProviderIcons } from './provider.js';
@@ -33,11 +33,16 @@ export function RailApp({controller, container}: {controller: RailController; co
   React.useEffect(() => {
     const onFocusOut = (event: FocusEvent) => { if (!container.contains(event.relatedTarget as Node | null)) controller.leaveAvatar(); };
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') controller.escape(); };
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 2 && event.target instanceof Element && !event.target.closest('.desktop-context-menu')) controller.closeMenu();
+    };
     container.addEventListener('focusout', onFocusOut);
     container.addEventListener('keydown', onKeyDown);
+    document.addEventListener('pointerdown', onPointerDown);
     return () => {
       container.removeEventListener('focusout', onFocusOut);
       container.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('pointerdown', onPointerDown);
     };
   }, [container, controller]);
 
@@ -46,11 +51,9 @@ export function RailApp({controller, container}: {controller: RailController; co
   return (
     <>
       <section
-        className={`desktop-strip${state.stripEmpty ? ' desktop-strip-empty' : ''}${state.lampAttentive ? ' lamp-attentive' : ''}`}
+        className={`desktop-strip${state.stripEmpty ? ' desktop-strip-empty' : ''}`}
         data-connection={state.connection}
         ref={element => controller.attach.strip(element)}
-        onPointerEnter={event => { if (event.pointerType !== 'touch') controller.setLampAttentive(true); }}
-        onPointerLeave={() => controller.setLampAttentive(false)}
         onContextMenu={event => { event.preventDefault(); controller.openMenu(event.clientY); }}
       >
         <div
@@ -80,18 +83,7 @@ export function RailApp({controller, container}: {controller: RailController; co
             />
           ))}
         </div>
-        <div
-          className="desktop-empty"
-          role="img"
-          hidden={state.emptyHidden}
-          title={state.emptyLabel}
-          aria-label={state.emptyLabel}
-          // The observer has to watch the drawing, not the box: the paused state
-          // is expressed as `.desktop-empty-lamp:not(.companion-visible)`.
-          ref={element => controller.attach.lamp(element?.firstElementChild ?? null)}
-        >
-          <IdleLamp />
-        </div>
+        {!state.emptyHidden && <SleepingAvatar avatar={state.restingAvatar} label={state.emptyLabel} controller={controller} />}
         <button
           type="button"
           className="desktop-overflow"
@@ -166,15 +158,13 @@ export function RailApp({controller, container}: {controller: RailController; co
         const row = rows.find(candidate => candidate.item.id === id);
         if (!row) return null;
         return (
-          <section
+          <AutomaticCard
             key={id}
-            className="desktop-card desktop-automatic-card"
-            aria-label="任务提醒"
-            ref={element => controller.attach.automatic(id, element)}
-            onContextMenu={event => { event.preventDefault(); controller.openMenu(event.clientY); }}
-          >
-            <SessionCard item={row.item} connection={state.connection} avatarStyle={state.avatarStyle} surfaceKey={`automatic:${id}`} controller={controller} />
-          </section>
+            item={row.item}
+            connection={state.connection}
+            avatarStyle={state.avatarStyle}
+            controller={controller}
+          />
         );
       })}
 
@@ -186,6 +176,29 @@ export function RailApp({controller, container}: {controller: RailController; co
         <svg className="desktop-welcome" aria-hidden="true" ref={element => controller.attach.welcome(element)} />
       )}
     </>
+  );
+}
+
+function AutomaticCard({item, connection, avatarStyle, controller}: {
+  item: RailItem;
+  connection: ConnectionState;
+  avatarStyle: AvatarStyle;
+  controller: RailController;
+}) {
+  // An inline ref detaches on every commit, erasing the visibility baseline
+  // even when this same reminder remains mounted.
+  const attach = React.useCallback((element: HTMLElement | null) => {
+    controller.attach.automatic(item.id, element);
+  }, [controller, item.id]);
+  return (
+    <section
+      className="desktop-card desktop-automatic-card"
+      aria-label="任务提醒"
+      ref={attach}
+      onContextMenu={event => { event.preventDefault(); controller.openMenu(event.clientY); }}
+    >
+      <SessionCard item={item} connection={connection} avatarStyle={avatarStyle} surfaceKey={`automatic:${item.id}`} controller={controller} />
+    </section>
   );
 }
 

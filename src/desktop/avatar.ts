@@ -27,7 +27,7 @@ const bots = [
   '<path d="M50 10 C57 10 88 47 88 63 C88 96 12 96 12 63 C12 46 43 10 50 10Z"/>',
 ];
 export type AvatarStyle = 'animal' | 'bot';
-export type AvatarStatus = 'idle' | 'running' | 'wait' | 'done' | 'error' | 'offline';
+export type AvatarStatus = 'idle' | 'sleep' | 'running' | 'wait' | 'done' | 'error' | 'offline';
 
 export function avatarIdentity(style: AvatarStyle, slot = 0) {
   const index = Number.isInteger(slot) && slot >= 0 ? slot : 0;
@@ -37,6 +37,7 @@ export function avatarIdentity(style: AvatarStyle, slot = 0) {
 }
 const colors = ['#b9cb91', '#ebbd8f', '#a8c8c4', '#d6b0b4', '#b8b9d5', '#d5c482', '#a4c2a2'];
 const eyes: Record<AvatarStatus, string[]> = {
+  sleep: ['M35 53 Q40 58 45 53', 'M56 53 Q61 58 66 53'],
   idle: ['M40 45 Q40 51 40 57', 'M61 45 Q61 51 61 57'],
   running: ['M39 49 Q41 52 42 57', 'M60 48 Q62 51 63 56'],
   wait: ['M40 44 Q40 50 40 56', 'M61 44 Q61 50 61 56'],

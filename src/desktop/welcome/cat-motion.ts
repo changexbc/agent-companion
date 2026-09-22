@@ -129,6 +129,9 @@ export function createLineCat(svg: SVGSVGElement, options: LineCatOptions = {}):
   };
   const line = $('living-line'), far = $('far-legs'), eyes = $('eyes');
   const eyeLeft = $('eye-left'), eyeRight = $('eye-right');
+  const spectrum = svg.querySelector<SVGLinearGradientElement>('#welcome-spectrum');
+  const stops = spectrum ? Array.from(spectrum.querySelectorAll('stop')) : [];
+  const palette = [42, 48, 65, 112, 225, 150, 76, 49, 42];
   const rect = options.rail || {x: 720, y: 181, width: 64, height: 251};
   const size = options.motionScale ?? 1;
   const base = rect.y + rect.height - Math.min(rect.width / 2, rect.height / 2);
@@ -162,6 +165,36 @@ export function createLineCat(svg: SVGSVGElement, options: LineCatOptions = {}):
       for (let i = 0; i <= count; i++) current.push(railPoint(draw * i / count, rect));
       line.setAttribute('d', curve(current, false, .16));
     }
+    // Use the same analytic clock as the silhouette: replay, interruption and
+    // reduced-motion cleanup need no second animation or timer. Keep a nonzero
+    // user-space gradient even when the cat contracts into a short drawing tip.
+    if (spectrum) {
+      const xs = current.map(point => point[0]), ys = current.map(point => point[1]);
+      const left = Math.min(...xs), top = Math.min(...ys);
+      const width = Math.max(60 * size, Math.max(...xs) - left);
+      const height = Math.max(60 * size, Math.max(...ys) - top);
+      spectrum.setAttribute('x1', String(left));
+      spectrum.setAttribute('y1', String(top));
+      spectrum.setAttribute('x2', String(left + width));
+      spectrum.setAttribute('y2', String(top + height * .15));
+      // Stay charcoal throughout the greeting/run. A narrow silver highlight
+      // wakes up as the kitten slows down, just before unthreading.
+      const flow = Math.max(0, t - 3.9) * 1.6;
+      stops.forEach((stop, i) => {
+        const color = smooth((t - 3.9 - i * .02) / .4);
+        const phase = (i + flow) % (palette.length - 1);
+        const index = Math.floor(phase);
+        const flowing = mix(palette[index], palette[index + 1], smooth(phase - index));
+        const silver = Math.round(mix(48, flowing, color));
+        stop.setAttribute('stop-color', `rgb(${silver},${silver},${silver})`);
+      });
+      // Once the frame closes, give it one soft pulse before the overlay leaves.
+      // Keep the silver highlight throughout; opacity alone hands over to the real rail.
+      const pulse = Math.sin(Math.PI * smooth((t - 6.65) / .35));
+      svg.style.setProperty('--welcome-glow', String(.2 * smooth((t - 3.9) / .56) + .3 * pulse));
+      svg.style.setProperty('--welcome-halo', String(.32 * pulse));
+      svg.style.setProperty('--welcome-glow-radius', `${2 + 3 * pulse}px`);
+    }
     line.setAttribute('fill-opacity', gather === 0 ? '1' : '0');
     const farAlpha = (1 - smooth((t - 4.4) / .1));
     far.setAttribute('opacity', String(study ? .62 : farAlpha * .62));
@@ -182,7 +215,7 @@ export function createLineCat(svg: SVGSVGElement, options: LineCatOptions = {}):
     eyeRight.setAttribute('transform', `translate(8.8 0) scale(1 ${f(eyelid)})`);
     // The cat is gone once its outline feeds the pen. No head returns at the end.
     eyes.setAttribute('opacity', study ? '1' : String(f(1 - smooth((t - 4.5) / .28))));
-    line.setAttribute('opacity', study ? '1' : String(f(1 - smooth((t - 6.65) / .35))));
+    line.setAttribute('opacity', study ? '1' : String(f(1 - smooth((t - 6.78) / .22))));
     svg.setAttribute('data-time', String(f(t)));
     svg.setAttribute('data-gather', String(f(gather)));
     svg.setAttribute('data-draw', String(f(draw)));

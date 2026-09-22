@@ -35,7 +35,7 @@ import { isDesktop, onDesktopPointer, onDesktopWindowActive } from './host.js';
 import { createRailWelcome, type RailWelcomeState } from './welcome/index.js';
 import { createHitRegions, type HitRegions } from './hit-regions.js';
 import { loadPreferences, watchPreferences } from './preferences.js';
-import { observeAvatars, pointAvatar, type AvatarStyle } from './avatar.js';
+import { avatarIdentity, observeAvatars, pointAvatar, type AvatarStyle } from './avatar.js';
 import { animateArrival, animateHeight, animateReorder, cancelHeightAnimations, leaveSurface, reducedMotion, revealSurface, retireGhost } from './rail-animations.js';
 import type { ConnectionState } from '../types/snapshot.js';
 
@@ -55,7 +55,7 @@ export interface RailState {
   avatarStyle: AvatarStyle;
   visibleCount: number;
   expanded: boolean;
-  lampAttentive: boolean;
+  restingAvatar: {slot: number; style: AvatarStyle; fromStatus: string};
   overflowHidden: boolean;
   overflowText: string;
   overflowLabel: string;
@@ -84,7 +84,10 @@ export function createRailController() {
   let avatarStyle: AvatarStyle = 'animal';
   let visibleCount = 8;
   let expanded = false;
-  let lampAttentive = false;
+  let restingAvatar: RailState['restingAvatar'] = {slot: 0, style: 'animal', fromStatus: 'idle'};
+  let restingElement: HTMLElement | null = null;
+  let restOrigin: DOMRect | null = null;
+  let waking = false;
   let inactive = false;
   let motionPaused = false;
   let card: {id: string; leaving: boolean} | null = null;
@@ -157,12 +160,12 @@ export function createRailController() {
       avatarStyle,
       visibleCount,
       expanded,
-      lampAttentive,
+      restingAvatar,
       overflowHidden,
       overflowText: expanded ? '−' : `+${count - visibleCount}`,
       overflowLabel: expanded ? '收起更多任务' : `展开其余 ${count - visibleCount} 个任务`,
       emptyHidden: count > 0,
-      emptyLabel: connection === 'connected' ? '正在监听，等待新任务' : connection === 'offline' ? '连接已中断，等待重新连接' : '正在连接监听服务',
+      emptyLabel: connection === 'connected' ? `暂无任务，${avatarIdentity(restingAvatar.style, restingAvatar.slot).name}正在休息` : connection === 'offline' ? '连接已中断，等待重新连接' : '正在连接监听服务',
       listHidden: count === 0,
       stripEmpty: count === 0,
       connectionLabel: connection === 'connected' ? `${count} 个监控会话` : connection === 'offline' ? '连接中断，保留最后状态' : '连接中',
@@ -222,10 +225,15 @@ export function createRailController() {
   function positionPreview(surface: HTMLElement, id: string) {
     const button = avatars.get(id);
     if (!button || button.hidden || !list) { surface.hidden = true; visible.set(id, false); return; }
-    const b = button.getBoundingClientRect(), bounds = list.getBoundingClientRect();
-    if (b.top < bounds.top || b.bottom > bounds.bottom + 1) { surface.hidden = true; visible.set(id, false); return; }
-    surface.style.top = `${Math.max(8, Math.min(b.top, innerHeight - surface.offsetHeight - 8))}px`;
-    surface.style.setProperty('--pointer-top', `${b.top + b.height / 2 - parseFloat(surface.style.top)}px`);
+    const bounds = list.getBoundingClientRect();
+    // Row and list share the strip as offsetParent. Anchor to layout, not the
+    // row's hover/arrival/FLIP transform, which otherwise leaks a 1px jump into
+    // the card on the next snapshot. Scroll still changes the anchor normally.
+    const top = bounds.top + button.offsetTop - list.offsetTop - list.scrollTop;
+    const height = button.offsetHeight;
+    if (top < bounds.top || top + height > bounds.bottom + 1) { surface.hidden = true; visible.set(id, false); return; }
+    surface.style.top = `${Math.max(8, Math.min(top, innerHeight - surface.offsetHeight - 8))}px`;
+    surface.style.setProperty('--pointer-top', `${top + height / 2 - parseFloat(surface.style.top)}px`);
   }
 
   function positionAll() {
@@ -329,12 +337,12 @@ export function createRailController() {
     departing = [...departing, {key, kind, item, style: {left: rect.x, top: rect.y, width: rect.width, height: rect.height}}];
   }
 
-  function retireAvatar(id: string) {
+  function retireAvatar(id: string, resting = false) {
     const element = avatars.get(id) ?? null;
     avatars.delete(id);
     hitRegions.unregister(`avatar:${id}`, 'control');
     avatarObserver?.unobserve(element?.querySelector('.companion-avatar'));
-    ghostFor(`avatar:${id}:${++ghostSequence}`, 'avatar', lastKnown.get(id), element);
+    if (!resting) ghostFor(`avatar:${id}:${++ghostSequence}`, 'avatar', lastKnown.get(id), element);
   }
 
   function retireAutomatic(id: string) {
@@ -351,12 +359,24 @@ export function createRailController() {
     welcomeController.update(model.items.some(item => URGENT.has(item.session.status)));
     const items = model.items;
     const ids = new Set(items.map(item => item.id));
+    let restingId: string | undefined;
+    if (!items.length && avatars.size) {
+      // Retain appearance only, never a finished session or its interaction.
+      const lastVisible = [...avatars].filter(([, element]) => !element.hidden).at(-1);
+      const previous = lastVisible && lastKnown.get(lastVisible[0]);
+      if (previous) {
+        restingId = previous.id;
+        restingAvatar = {slot: previous.identity.slot, style: avatarStyle, fromStatus: sessionPresentation(previous.session, model.connection).status};
+        restOrigin = lastVisible![1].getBoundingClientRect();
+      }
+    }
+    if (items.length && state.items.length === 0) waking = true;
     for (const [id, key] of mutedQuestions) {
       const item = items.find(row => row.id === id);
       if (!item || item.session.status !== 'wait' || questionKey(item) !== key) mutedQuestions.delete(id);
     }
     const wanted = new Set(reminders().map(item => item.id));
-    for (const id of [...avatars.keys()]) if (!ids.has(id)) retireAvatar(id);
+    for (const id of [...avatars.keys()]) if (!ids.has(id)) retireAvatar(id, id === restingId);
     for (const id of [...automatics.keys()]) if (!wanted.has(id)) retireAutomatic(id);
     if (items.length <= visibleCount) expanded = false;
     for (const id of [...lastKnown.keys()]) if (!ids.has(id)) lastKnown.delete(id);
@@ -378,7 +398,6 @@ export function createRailController() {
 
   const welcomeController = createRailWelcome({
     rail: () => strip,
-    storage,
     auto: isDesktop() || new URLSearchParams(location.search).has('welcome'),
     onStateChange: welcomeState,
     onElapsed: seconds => { if (container) container.dataset.welcomeTime = seconds.toFixed(2); },
@@ -391,7 +410,6 @@ export function createRailController() {
 
   const unsubscribeWindowActive = onDesktopWindowActive(value => {
     inactive = !value;
-    if (!value) lampAttentive = false;
     applyContainer();
     state = build();
     notify();
@@ -400,8 +418,6 @@ export function createRailController() {
 
   const unsubscribePointer = onDesktopPointer(point => {
     const target = point ? document.elementFromPoint(point.x, point.y) : null;
-    const overStrip = Boolean(target?.closest('.desktop-strip'));
-    if (overStrip !== lampAttentive) { lampAttentive = overStrip; publish(); }
     const control = (target?.closest('button:not(:disabled)') as HTMLElement | null) || null;
     if (control !== nativeControl) { nativeControl?.classList.remove('native-hover'); control?.classList.add('native-hover'); nativeControl = control; }
     if (menuOpen) return;
@@ -475,12 +491,28 @@ export function createRailController() {
         if (element.hidden) continue;
         const top = element.offsetTop;
         const previous = measured.avatars.get(id);
-        if (previous === undefined) animateArrival(element);
+        if (previous === undefined) {
+          if (waking && seen.size === 0 && !reducedMotion() && animationEnabled) {
+            element.animate([{transform: 'translateY(2px)'}, {transform: 'translateY(0)'}], {duration: 420, easing: 'ease-out'});
+          } else animateArrival(element);
+        }
         else animateReorder(element, previous - top);
         seen.add(id);
         measured.avatars.set(id, top);
       }
       for (const id of [...measured.avatars.keys()]) if (!seen.has(id)) measured.avatars.delete(id);
+    }
+
+    waking = false;
+    if (restOrigin && restingElement && !state.items.length) {
+      if (!reducedMotion() && animationEnabled) {
+        const target = restingElement.getBoundingClientRect();
+        restingElement.animate([
+          {transform: `translate(${restOrigin.x - target.x}px, ${restOrigin.y - target.y}px)`},
+          {transform: 'translate(0, 0)'},
+        ], {duration: 420, easing: 'cubic-bezier(.22,1,.36,1)'});
+      }
+      restOrigin = null;
     }
 
     if (cardEl && card) {
@@ -534,7 +566,11 @@ export function createRailController() {
       notice(element: HTMLElement | null) { noticeEl = element; hitRegions.register('notice', 'surface', element); },
       menu(element: HTMLElement | null) { menuEl = element; hitRegions.register('menu', 'surface', element); },
       welcome(element: SVGSVGElement | null) { welcomeController.attach(element); },
-      lamp(element: Element | null) { avatarObserver?.observe(element); },
+      resting(element: HTMLElement | null) {
+        avatarObserver?.unobserve(restingElement?.querySelector('.companion-avatar'));
+        restingElement = element;
+        avatarObserver?.observe(element?.querySelector('.companion-avatar'));
+      },
       avatar(id: string, element: HTMLElement | null) {
         if (element) { avatars.set(id, element); avatarObserver?.observe(element.querySelector('.companion-avatar')); }
         else { avatars.delete(id); avatarObserver?.unobserve(element); }
@@ -557,7 +593,6 @@ export function createRailController() {
     clearPointer(id: string) { pointAvatar(avatars.get(id), null); },
     focusAvatar(id: string) { show(id); },
     clickAvatar(id: string) { const item = model.items.find(row => row.id === id); if (item) void open(item); },
-    setLampAttentive(value: boolean) { if (value !== lampAttentive) { lampAttentive = value; publish(); } },
 
     dismiss(id: string) {
       const item = model.items.find(row => row.id === id);
