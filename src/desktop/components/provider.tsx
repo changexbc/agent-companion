@@ -7,8 +7,12 @@ import type { RailItem } from '../rail-model.js';
  * Codeg and the CodeBuddy IDE report the agent they are running.
  */
 export function providerLabel(item: RailItem, presentation: SessionPresentation) {
-  if (item.session.source === 'codeg' && presentation.badge?.id !== 'codeg') return `Codeg · ${presentation.badge?.label || presentation.provider}`;
-  if (item.session.source === 'workbuddy' || item.session.source === 'codebuddy-ide') return presentation.badge?.label || presentation.provider;
+  const badge = presentation.badge;
+  if (item.session.source === 'codeg' && badge?.id !== 'codeg') return `Codeg · ${badge?.label || presentation.provider}`;
+  // A nested badge on the IDE source means the CodeBuddy hook reported another
+  // host (the VS Code plugin), which the label names next to CodeBuddy.
+  if (item.session.source === 'codebuddy-ide' && badge && badge.host !== badge.id) return `${presentation.provider} · ${badge.label}`;
+  if (item.session.source === 'workbuddy' || item.session.source === 'codebuddy-ide') return badge?.label || presentation.provider;
   return presentation.provider;
 }
 

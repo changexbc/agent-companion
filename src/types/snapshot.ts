@@ -63,6 +63,12 @@ export interface Session {
   // Present only once an adapter has observed them.
   folderId?: string | number;
   agentType?: string;
+  /**
+   * Which application the hook reported: `"vscode"` for the CodeBuddy VS Code
+   * plugin, `"codebuddy-ide"` for the IDE. Absent on older sessions and on any
+   * unknown host, both of which stay IDE hosts.
+   */
+  hostKind?: string;
   /** Display name of an imported `custom:<id>` source, taken from its template. */
   sourceLabel?: string;
   externalId?: string;

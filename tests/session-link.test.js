@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {workBuddySessionLink,screenSessionLink,agentSessionLink,codeBuddyFolderLink,codegAppLink,openSessionLink,nestedAgentId,sessionBadge} from '../src/monitor/session-link.js';
+import {workBuddySessionLink,screenSessionLink,agentSessionLink,codeBuddyFolderLink,codegAppLink,openSessionLink,nestedAgentId,sessionBadge,isCodeBuddyVSCodeHost,hasOpenableFolder} from '../src/monitor/session-link.js';
 import {sessionHeadline} from '../src/monitor/model.js';
 test('session cards prefer the conversation title over a bare status',()=>{
   assert.equal(sessionHeadline({title:'添加下班驾车离场动画'},'running'),'添加下班驾车离场动画');
@@ -83,4 +83,34 @@ test('CodeBuddy IDE links open the project folder, not a conversation id',()=>{
  const state={mode:'monitor',status:'running',source:'codebuddy-ide',sessionId:'conv-1',cwd:'/work/app'};
  assert.equal(screenSessionLink(state,{x:(14+410*484/512)/512,y:(18+262*232/288)/288}),'codebuddy://file/work/app');
  assert.equal(screenSessionLink({...state,agentType:'codebuddycn'},{x:(14+410*484/512)/512,y:(18+262*232/288)/288}),'codebuddycn://file/work/app');
+});
+
+test('the VS Code plugin keeps the IDE source but becomes a VS Code host',()=>{
+ assert.equal(isCodeBuddyVSCodeHost({source:'codebuddy-ide',hostKind:'vscode'}),true);
+ for(const s of [null,{source:'codex',hostKind:'vscode'},{source:'codebuddy-ide'},{source:'codebuddy-ide',hostKind:'codebuddy-ide'},{source:'codebuddy-ide',hostKind:'cursor'}])assert.equal(isCodeBuddyVSCodeHost(s),false);
+ assert.deepEqual(sessionBadge({source:'codebuddy-ide',hostKind:'vscode'}),{host:'codebuddy-ide',id:'vscode',label:'VS Code'});
+ assert.deepEqual(sessionBadge({source:'codebuddy-ide',hostKind:'vscode',agentType:'codebuddycn'}),{host:'codebuddy-ide',id:'vscode',label:'VS Code'});
+ for(const cwd of ['/Users/apple/Work/a b?','/work/app'])assert.equal(hasOpenableFolder(cwd),true);
+ for(const cwd of [undefined,'',' ','/','///','relative/path'])assert.equal(hasOpenableFolder(cwd),false);
+ // VS Code's URL handler always targets the last active window, so the session
+ // opens through a desktop command that resolves the folder from the session id.
+ assert.equal(agentSessionLink({source:'codebuddy-ide',hostKind:'vscode',sessionId:'conv-1',cwd:'/Users/apple/CodeBuddy/Claw'}),'/api/open-session?source=codebuddy-ide&host=vscode&session=conv-1&cwd=%2FUsers%2Fapple%2FCodeBuddy%2FClaw');
+ assert.equal(agentSessionLink({source:'codebuddy-ide',hostKind:'vscode',agentType:'codebuddycn',sessionId:'conv-1',cwd:'/work/app'}),'/api/open-session?source=codebuddy-ide&host=vscode&session=conv-1&cwd=%2Fwork%2Fapp');
+ assert.equal(agentSessionLink({source:'codebuddy-ide',hostKind:'vscode',sessionId:'task/a ?#',cwd:'/work/app'}),'/api/open-session?source=codebuddy-ide&host=vscode&session=task%2Fa%20%3F%23&cwd=%2Fwork%2Fapp');
+ for(const cwd of [undefined,'',' ','/','///','relative/path'])assert.equal(agentSessionLink({source:'codebuddy-ide',hostKind:'vscode',sessionId:'conv-1',cwd}),'/api/open-session?source=codebuddy-ide&host=vscode&session=conv-1');
+ for(const sessionId of [undefined,'',' '])assert.equal(agentSessionLink({source:'codebuddy-ide',hostKind:'vscode',sessionId,cwd:'/work/app'}),'/api/open-session?source=codebuddy-ide&host=vscode');
+ const state={mode:'monitor',status:'running',source:'codebuddy-ide',hostKind:'vscode',sessionId:'conv-1',cwd:'/work/app'};
+ assert.equal(screenSessionLink(state,{x:(14+410*484/512)/512,y:(18+262*232/288)/288}),'/api/open-session?source=codebuddy-ide&host=vscode&session=conv-1&cwd=%2Fwork%2Fapp');
+ assert.equal(screenSessionLink({...state,cwd:'/'},{x:(14+410*484/512)/512,y:(18+262*232/288)/288}),'/api/open-session?source=codebuddy-ide&host=vscode&session=conv-1');
+});
+
+test('a missing or unknown hostKind behaves exactly like a CodeBuddy IDE session',()=>{
+ for(const hostKind of [undefined,'codebuddy-ide','','cursor']){
+  const s={source:'codebuddy-ide',sessionId:'conv-1',cwd:'/work/app',...(hostKind===undefined?{}:{hostKind})};
+  assert.deepEqual(sessionBadge(s),{host:'codebuddy-ide',id:'codebuddy-ide',label:'CodeBuddy'});
+  assert.equal(agentSessionLink(s),'codebuddy://file/work/app');
+  assert.deepEqual(sessionBadge({...s,agentType:'codebuddycn'}),{host:'codebuddy-ide',id:'codebuddy-ide',label:'CodeBuddy 国内版'});
+  assert.equal(agentSessionLink({...s,agentType:'codebuddycn'}),'codebuddycn://file/work/app');
+ }
+ assert.equal(agentSessionLink({source:'codebuddy-ide',hostKind:'codebuddy-ide'}),'/api/open-session?source=codebuddy-ide&edition=international');
 });

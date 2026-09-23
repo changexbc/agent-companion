@@ -6,6 +6,8 @@ export interface LinkableSession {
   agentType?: string;
   sessionId?: string;
   cwd?: string;
+  /** `"vscode"` for the CodeBuddy VS Code plugin; absent or anything else is the IDE. */
+  hostKind?: string;
   /** Display name an imported custom source carries on every event. */
   sourceLabel?: string;
 }
@@ -15,7 +17,7 @@ export interface SessionBadge { host: string; id: string; label: string }
 export const SESSION_WINDOW = {x:14,y:18,width:484,height:232};
 export const SESSION_BUTTON = {x:385,y:250,width:110,height:25,radius:6};
 export const SESSION_SOURCES = ['codex','workbuddy','codebuddy-ide','codeg'];
-export const AGENT_ICON_IDS = ['codex','workbuddy','codebuddy-ide','codeg','grok'];
+export const AGENT_ICON_IDS = ['codex','workbuddy','codebuddy-ide','codeg','grok','vscode'];
 const NESTED_AGENTS: Record<string, string> = {
   code_buddy:'codebuddy-ide', codebuddy:'codebuddy-ide', codebuddy_code:'codebuddy-ide',
   claude_code:'claude', claude_acp:'claude', claude:'claude',
@@ -59,6 +61,7 @@ export function nestedAgentId(agentType?: string): string | null {
 export function sessionBadge(session?: LinkableSession | null): SessionBadge | null {
   if(!session?.source)return null;
   if(isCustomSource(session.source))return {host:session.source,id:session.source,label:customSourceLabel(session)};
+  if(isCodeBuddyVSCodeHost(session))return {host:'codebuddy-ide',id:'vscode',label:'VS Code'};
   if(session.source==='codeg'){
     const nested=nestedAgentId(session.agentType);
     if(nested)return {host:'codeg',id:nested,label:sourceLabel(nested)==='未绑定'?String(session.agentType):sourceLabel(nested)};
@@ -77,13 +80,34 @@ function isCodeBuddyInternationalType(agentType?: string) {
 export function isCodeBuddyInternational(session?: LinkableSession | null) {
   return session?.source==='codebuddy-ide' && isCodeBuddyInternationalType(session.agentType);
 }
-export function codeBuddyFolderLink(cwd: unknown, session?: LinkableSession | null): string | null {
+/**
+ * The CodeBuddy VS Code plugin shares the IDE's hooks and source; only the
+ * payload client distinguishes them. Any other hostKind stays an IDE session.
+ */
+export function isCodeBuddyVSCodeHost(session?: LinkableSession | null) {
+  return session?.source==='codebuddy-ide' && session.hostKind==='vscode';
+}
+/** The one accepted shape of a project folder: absolute, non-empty, forward slashes. */
+function folderAbsolutePath(cwd: unknown): string | null {
   if(typeof cwd !== 'string' || !cwd.trim())return null;
   const normalized=cwd.trim().replace(/\\/g,'/').replace(/\/+$/,'');
   if(!normalized || !/^(?:\/|[A-Za-z]:\/)/.test(normalized))return null;
-  const absolute=normalized.startsWith('/')?normalized:`/${normalized}`;
+  return normalized.startsWith('/')?normalized:`/${normalized}`;
+}
+export function codeBuddyFolderLink(cwd: unknown, session?: LinkableSession | null): string | null {
+  const absolute=folderAbsolutePath(cwd);
+  if(!absolute)return null;
   const scheme=isCodeBuddyInternationalType(session?.agentType)?'codebuddy':'codebuddycn';
   return `${scheme}://file${absolute.split('/').map(encodeURIComponent).join('/')}`;
+}
+/**
+ * True when the session carries a folder the desktop side can open. The VS Code
+ * host has no folder URL: `vscode://file/...` is handled by VS Code's own URL
+ * handler, which always targets the last active window, so the desktop app
+ * resolves the window folder from the plugin history instead.
+ */
+export function hasOpenableFolder(cwd: unknown): boolean {
+  return folderAbsolutePath(cwd) !== null;
 }
 export function codegAppLink(session?: LinkableSession | null): string | null {
   if(session?.source!=='codeg'||typeof session?.sessionId!=='string'||!session.sessionId.trim())return null;
@@ -97,6 +121,15 @@ export function isWorkBuddyInternational(session?: LinkableSession | null) {
 
 export function agentSessionLink(session?: LinkableSession | null): string | null {
   if(session?.source==='codebuddy-ide'){
+    // The plugin has no URI handler, so a VS Code session can only ever open
+    // its project folder — or, without one, the application itself. The folder
+    // is resolved desktop-side from the session id; `cwd` is only a candidate.
+    if(isCodeBuddyVSCodeHost(session)){
+      const id=typeof session.sessionId==='string'?session.sessionId.trim():'';
+      if(!id)return '/api/open-session?source=codebuddy-ide&host=vscode';
+      const folder=folderAbsolutePath(session.cwd);
+      return `/api/open-session?source=codebuddy-ide&host=vscode&session=${encodeURIComponent(id)}${folder?`&cwd=${encodeURIComponent(folder)}`:''}`;
+    }
     const edition=isCodeBuddyInternational(session)?'international':'domestic';
     return codeBuddyFolderLink(session.cwd, session) || `/api/open-session?source=codebuddy-ide&edition=${edition}`;
   }

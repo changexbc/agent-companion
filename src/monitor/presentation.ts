@@ -1,5 +1,5 @@
 import { STATUS, sessionHeadline } from './model.js';
-import { agentSessionLink, codeBuddyFolderLink, sessionBadge, sessionSourceLabel, type SessionBadge } from './session-link.js';
+import { agentSessionLink, codeBuddyFolderLink, hasOpenableFolder, isCodeBuddyVSCodeHost, sessionBadge, sessionSourceLabel, type SessionBadge } from './session-link.js';
 import type { ConnectionState, PresentationStatus, Session, SourceHealth } from '../types/snapshot.js';
 
 export interface SessionPresentation {
@@ -18,6 +18,12 @@ export function sessionPresentation(session?: Session | null, connection: Connec
   const unavailable = connection !== 'connected' || (sourceHealth && !['ok', 'partial'].includes(sourceHealth.state));
   const status = unavailable ? 'offline' : session?.status || 'idle';
   const pending = session?.pending?.[0];
+  const url = agentSessionLink(session);
+  // Each host names the action after the link its own builder accepts, so the
+  // button never promises an app the target does not open.
+  const action = session?.source !== 'codebuddy-ide' ? '进入对话'
+    : isCodeBuddyVSCodeHost(session) ? (hasOpenableFolder(session.cwd) ? '打开工程' : '打开 VS Code')
+      : (codeBuddyFolderLink(session.cwd, session) ? '打开工程' : '打开 CodeBuddy');
   return {
     status,
     statusLabel: session?.endedBy === 'host' ? '已退出' : status === 'running' && session?.permissionChecks?.length ? '权限检查中' : STATUS[status] || status,
@@ -25,7 +31,7 @@ export function sessionPresentation(session?: Session | null, connection: Connec
     provider: sessionSourceLabel(session),
     badge: sessionBadge(session),
     question: status === 'wait' ? pending?.questions?.[0]?.text || pending?.text || '' : '',
-    url: agentSessionLink(session),
-    action: session?.source === 'codebuddy-ide' ? (codeBuddyFolderLink(session.cwd, session) ? '打开工程' : '打开 CodeBuddy') : '进入对话',
+    url,
+    action,
   };
 }

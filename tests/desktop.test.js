@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { createRailModel } from '../src/desktop/rail-model.js';
 import { sessionPresentation } from '../src/monitor/presentation.js';
+import { providerLabel } from '../src/desktop/components/provider.tsx';
 import { createNotificationTracker } from '../src/monitor/model.js';
 import { snapshotKey } from '../collector/desktop.js';
 import { defaultSettings } from '../src/settings-config.js';
@@ -127,6 +128,22 @@ test('shared card presentation preserves source-specific navigation and wait pre
   assert.equal(sessionPresentation(session(1, 'running', { source: 'workbuddy', agentType: 'workbuddy-ai' })).provider, 'WorkBuddy 国际版');
   assert.equal(sessionPresentation(session(1, 'running', { source: 'workbuddy', agentType: 'workbuddy-ai' })).url, 'workbuddy-ai://chat/1');
 });
+test('the CodeBuddy VS Code plugin is labelled as a VS Code host and opens VS Code', () => {
+  const vscode = session(1, 'running', { source: 'codebuddy-ide', agentType: 'codebuddy', hostKind: 'vscode', cwd: '/tmp/demo' });
+  const withFolder = sessionPresentation(vscode);
+  assert.equal(withFolder.provider, 'CodeBuddy 国际版');
+  assert.deepEqual(withFolder.badge, { host: 'codebuddy-ide', id: 'vscode', label: 'VS Code' });
+  assert.equal(withFolder.url, '/api/open-session?source=codebuddy-ide&host=vscode&session=1&cwd=%2Ftmp%2Fdemo');
+  assert.equal(withFolder.action, '打开工程');
+  assert.equal(providerLabel({ session: vscode }, withFolder), 'CodeBuddy 国际版 · VS Code');
+  const withoutFolder = sessionPresentation({ ...vscode, cwd: '/' });
+  assert.equal(withoutFolder.url, '/api/open-session?source=codebuddy-ide&host=vscode&session=1');
+  assert.equal(withoutFolder.action, '打开 VS Code');
+  const ide = session(1, 'running', { source: 'codebuddy-ide', agentType: 'codebuddy', cwd: '/tmp/demo' });
+  assert.equal(sessionPresentation(ide).action, '打开工程');
+  assert.equal(providerLabel({ session: ide }, sessionPresentation(ide)), 'CodeBuddy 国际版');
+});
+
 test('a confirmed Codex read transition hides only that completed round', () => {
   const model=connected({now:()=>2000});model.accept(snapshot([session(1)]));
   model.accept(snapshot([session(1,'done',{endedAt:2000,viewedRoundId:'other'})]));assert.equal(model.items.length,1);
