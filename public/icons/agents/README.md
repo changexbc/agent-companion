@@ -3,5 +3,5 @@ Task-source identification icons, extracted from locally installed official appl
 - codex.png: ChatGPT.app/Contents/Resources/icon-codex-light.png (Codex desktop icon)
 - codebuddy-ide.png: CodeBuddy CN.app/Contents/Resources/CodeBuddy CN.icns
 - codeg.png: codeg.app/Contents/Resources/icon.icns
-- grok.png: Grok Bot.app/Contents/Resources/AppIcon.icns
+- grok.png: grok.com/images/apple-touch-icon.png (official Grok web app icon; no official Grok desktop app installed)
 Resized to 128 px with macOS sips. Marks belong to their respective owners.
