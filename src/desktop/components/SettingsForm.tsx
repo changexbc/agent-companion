@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { IntegrationManager } from './IntegrationManager.js';
-import { createAvatar } from '../avatar.js';
+import { BOT_AVATAR_COUNT, createAvatar } from '../avatar.js';
 import { desktopCommand, isDesktop } from '../host.js';
 import { agents, loadListening, saveListening } from '../listening.js';
 import { defaultPreferences, loadPreferences, savePreferences } from '../preferences.js';
@@ -15,7 +15,7 @@ const counts = Array.from({length: 14}, (_, index) => index + 3);
 
 const styles: readonly (readonly [AvatarStyle, string, string])[] = [
   ['animal', '小动物', '10 种动物伙伴'],
-  ['bot', '几何伙伴', '3 种简洁造型'],
+  ['bot', '几何伙伴', `${BOT_AVATAR_COUNT} 种简洁造型`],
 ];
 
 const allEnabled = () => Object.fromEntries(agents.map(([id]) => [id, true])) as Record<SourceId, boolean>;
@@ -50,7 +50,7 @@ function StylePreview({ style }: { style: AvatarStyle }) {
   React.useEffect(() => {
     const element = host.current;
     if (!element) return;
-    for (let slot = 0; slot < 3; slot++) element.append(createAvatar(style, slot) as Element);
+    for (const slot of style === 'bot' ? [0, 3, 8] : [0, 1, 2]) element.append(createAvatar(style, slot) as Element);
     return () => element.replaceChildren();
   }, [style]);
 

@@ -1,5 +1,9 @@
 .companion-avatar{display:block;overflow:visible;flex-shrink:0}
 .companion-body{transform-origin:50px 57px;transition:transform .4s cubic-bezier(.2,.9,.3,1.3)}
+.companion-work{transform-origin:50px 57px}
+.companion-avatar[data-style=bot][data-state=running] .companion-work{animation:var(--work-motion,companion-bot-work) var(--work-time,5s) ease-in-out var(--motion-delay,0s) infinite}
+@keyframes companion-bot-work{0%,100%{transform:translateY(0) rotate(-1deg) scale(1)}45%{transform:translateY(-1.8px) rotate(1.2deg) scale(1.015,.99)}75%{transform:translateY(-.5px) rotate(.3deg) scale(.995,1.01)}}
+@keyframes companion-heart-work{0%,35%,70%,100%{transform:translateY(0) scale(1)}45%{transform:translateY(-1px) scale(1.025)}56%{transform:translateY(-.4px) scale(1.006)}62%{transform:translateY(-.8px) scale(1.018)}}
 .companion-pointer{transition:transform .3s ease}
 .companion-look{animation:companion-look 9s ease-in-out var(--motion-delay,0s) infinite}
 .companion-lids{transform-origin:50px 51px;animation:companion-blink var(--blink-time,6s) ease-in-out var(--motion-delay,0s) infinite}

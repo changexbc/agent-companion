@@ -25,13 +25,22 @@ const bots = [
   '<path d="M26 18 Q47 9 64 18 L84 34 Q91 42 86 57 L77 78 Q73 87 60 88 L33 85 Q20 83 17 70 L12 44 Q10 31 26 18Z"/>',
   '<rect x="14" y="15" width="73" height="73" rx="25" transform="rotate(-7 50 50)"/>',
   '<path d="M50 10 C57 10 88 47 88 63 C88 96 12 96 12 63 C12 46 43 10 50 10Z"/>',
+  '<path d="M50 30 C33 6 10 19 12 40 C14 59 35 78 46 87 Q50 91 54 87 C65 78 86 59 88 40 C90 19 67 6 50 30Z"/>',
+  '<circle cx="50" cy="51" r="37"/>',
+  '<path d="M43 17 Q50 5 57 17 L89 74 Q96 87 81 87 H19 Q4 87 11 74Z"/>',
+  '<path d="M43 14 Q50 7 57 14 L86 43 Q94 51 86 59 L57 88 Q50 95 43 88 L14 59 Q6 51 14 43Z"/>',
+  '<path d="M33 15 H67 Q72 15 75 20 L90 46 Q93 51 90 56 L75 82 Q72 87 67 87 H33 Q28 87 25 82 L10 56 Q7 51 10 46 L25 20 Q28 15 33 15Z"/>',
+  '<path d="M46 13 Q50 5 54 13 L64 32 L85 36 Q95 38 88 46 L73 62 L75 84 Q76 94 67 89 L50 79 L33 89 Q24 94 25 84 L27 62 L12 46 Q5 38 15 36 L36 32Z"/>',
+  '<rect x="10" y="24" width="80" height="55" rx="27.5" transform="rotate(-8 50 51)"/>',
 ];
+const botNames = ['多边形伙伴', '方块伙伴', '水滴伙伴', '爱心伙伴', '圆球伙伴', '三角伙伴', '菱形伙伴', '六边形伙伴', '星星伙伴', '胶囊伙伴'];
+export const BOT_AVATAR_COUNT = bots.length;
 export type AvatarStyle = 'animal' | 'bot';
 export type AvatarStatus = 'idle' | 'sleep' | 'running' | 'wait' | 'done' | 'error' | 'offline';
 
 export function avatarIdentity(style: AvatarStyle, slot = 0) {
   const index = Number.isInteger(slot) && slot >= 0 ? slot : 0;
-  const names = style === 'bot' ? ['多边形伙伴', '方块伙伴', '水滴伙伴'] : animalNames;
+  const names = style === 'bot' ? botNames : animalNames;
   const variant = index % names.length;
   return {variant, name: names[variant]};
 }
@@ -68,6 +77,8 @@ export function avatarParts(style: AvatarStyle, slot = 0) {
       '--motion-delay': `${-(index * 1.37 % 7)}s`,
       '--ear-time': `${12.7 + index % 7 * 1.13}s`,
       '--wait-time': `${9 + index % 4}s`,
+      '--work-time': `${4.8 + index % 5 * .37}s`,
+      '--work-motion': variant === 3 ? 'companion-heart-work' : 'companion-bot-work',
     } as Record<string, string>,
   };
 }
@@ -78,7 +89,9 @@ export function avatarParts(style: AvatarStyle, slot = 0) {
  * `d` is rewritten on every status change by `updateAvatar`.
  */
 export function avatarBody(parts: ReturnType<typeof avatarParts>) {
-  return `<g class="companion-body"><g class="companion-attention"><g fill="${parts.color}">${parts.shape}</g><g class="companion-pointer"><g class="companion-look"><g class="companion-lids"><path/><path/></g></g></g></g></g>`;
+  const face = `<g class="companion-attention"><g fill="${parts.color}">${parts.shape}</g><g class="companion-pointer"><g class="companion-look"><g class="companion-lids"><path/><path/></g></g></g></g>`;
+  // A separate group keeps working motion independent of acknowledgement and hover.
+  return `<g class="companion-body">${parts.style === 'bot' ? `<g class="companion-work">${face}</g>` : face}</g>`;
 }
 
 export function createAvatar(style: AvatarStyle = 'animal', slot = 0) {
