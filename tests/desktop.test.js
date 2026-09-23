@@ -132,7 +132,7 @@ test('the CodeBuddy VS Code plugin is labelled as a VS Code host and opens VS Co
   const vscode = session(1, 'running', { source: 'codebuddy-ide', agentType: 'codebuddy', hostKind: 'vscode', cwd: '/tmp/demo' });
   const withFolder = sessionPresentation(vscode);
   assert.equal(withFolder.provider, 'CodeBuddy 国际版');
-  assert.deepEqual(withFolder.badge, { host: 'codebuddy-ide', id: 'vscode', label: 'VS Code' });
+  assert.deepEqual(withFolder.badge, { host: 'codebuddy-ide', id: 'codebuddy-vscode', label: 'VS Code' });
   assert.equal(withFolder.url, '/api/open-session?source=codebuddy-ide&host=vscode&session=1&cwd=%2Ftmp%2Fdemo');
   assert.equal(withFolder.action, '打开工程');
   assert.equal(providerLabel({ session: vscode }, withFolder), 'CodeBuddy 国际版 · VS Code');

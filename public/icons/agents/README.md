@@ -4,5 +4,5 @@ Task-source identification icons, extracted from locally installed official appl
 - codebuddy-ide.png: CodeBuddy CN.app/Contents/Resources/CodeBuddy CN.icns
 - codeg.png: codeg.app/Contents/Resources/icon.icns
 - grok.png: grok.com/images/apple-touch-icon.png (official Grok web app icon; no official Grok desktop app installed)
-- vscode.png: Visual Studio Code.app/Contents/Resources/Code.icns (macOS app icon)
+- codebuddy-vscode.png: tencent-cloud.coding-copilot extension resources/copilot.png (the plugin's own mark)
 Resized to 128 px with macOS sips. Marks belong to their respective owners.

@@ -17,7 +17,7 @@ export interface SessionBadge { host: string; id: string; label: string }
 export const SESSION_WINDOW = {x:14,y:18,width:484,height:232};
 export const SESSION_BUTTON = {x:385,y:250,width:110,height:25,radius:6};
 export const SESSION_SOURCES = ['codex','workbuddy','codebuddy-ide','codeg'];
-export const AGENT_ICON_IDS = ['codex','workbuddy','codebuddy-ide','codeg','grok','vscode'];
+export const AGENT_ICON_IDS = ['codex','workbuddy','codebuddy-ide','codeg','grok','codebuddy-vscode'];
 const NESTED_AGENTS: Record<string, string> = {
   code_buddy:'codebuddy-ide', codebuddy:'codebuddy-ide', codebuddy_code:'codebuddy-ide',
   claude_code:'claude', claude_acp:'claude', claude:'claude',
@@ -61,7 +61,7 @@ export function nestedAgentId(agentType?: string): string | null {
 export function sessionBadge(session?: LinkableSession | null): SessionBadge | null {
   if(!session?.source)return null;
   if(isCustomSource(session.source))return {host:session.source,id:session.source,label:customSourceLabel(session)};
-  if(isCodeBuddyVSCodeHost(session))return {host:'codebuddy-ide',id:'vscode',label:'VS Code'};
+  if(isCodeBuddyVSCodeHost(session))return {host:'codebuddy-ide',id:'codebuddy-vscode',label:'VS Code'};
   if(session.source==='codeg'){
     const nested=nestedAgentId(session.agentType);
     if(nested)return {host:'codeg',id:nested,label:sourceLabel(nested)==='未绑定'?String(session.agentType):sourceLabel(nested)};
