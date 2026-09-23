@@ -19,13 +19,15 @@ async function until(fn){for(let i=0;i<100;i++){const result=await fn();if(resul
 async function fixture(t) {
  const home=await fs.mkdtemp(path.join(os.tmpdir(),'codeg-hooks-'));
  t.after(()=>fs.rm(home,{recursive:true,force:true}));
- const state={hooks:[],filter:null,channels:[],calls:[],snapshot:{conversation_id:214,external_id:'thr-native',folder_id:1},fail:false};
+ // `startup` models the one alignment window: only there may acp_list_connections
+ // run; a runtime scan after the window still trips the strict method list.
+ const state={hooks:[],filter:null,channels:[],calls:[],snapshot:{conversation_id:214,external_id:'thr-native',folder_id:1},connections:[],snapshots:null,startup:true,failList:false,fail:false};
  const server=http.createServer(async(req,res)=>{
   const parts=[];for await(const chunk of req)parts.push(chunk);
   const body=JSON.parse(Buffer.concat(parts).toString()||'{}'),method=req.url.slice(5);
   assert.equal(req.headers.authorization,'Bearer secret-test-token');
   state.calls.push({method,body});
-  if(state.fail){res.writeHead(503).end();return;}
+  if(state.fail||(state.failList&&method==='acp_list_connections')){res.writeHead(503).end();return;}
   let result=null;
   if(method==='get_chat_event_webhooks')result=state.hooks;
   else if(method==='set_chat_event_webhooks'){
@@ -35,12 +37,15 @@ async function fixture(t) {
   else if(method==='get_chat_event_filter')result=state.filter;
   else if(method==='set_chat_event_filter')state.filter=body.filter;
   else if(method==='list_chat_channels')result=state.channels;
-  else if(method==='acp_get_session_snapshot')result=state.snapshot;
+  else if(method==='acp_list_connections'){
+   if(!state.startup)throw Error(`Unexpected API (no scanning allowed): ${method}`);
+   result=state.connections;
+  }
+  else if(method==='acp_get_session_snapshot')result=state.snapshots?.[body.connectionId]??state.snapshot;
   else throw Error(`Unexpected API (no scanning allowed): ${method}`);
   res.setHeader('Content-Type','application/json');res.end(JSON.stringify(result));
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
- t.after(()=>new Promise(r=>server.close(r)));
  const sockets=new Set();state.sockets=sockets;
  const wss=new WebSocketServer({noServer:true,handleProtocols:protocols=>protocols.has('codeg-events')?'codeg-events':false});
  server.on('upgrade',(req,socket,head)=>{
@@ -58,7 +63,8 @@ async function fixture(t) {
    });
   });
  });
- t.after(()=>{for(const socket of sockets)socket.terminate();wss.close();});
+ // Streams and keep-alive sockets must die before close(): it waits for them.
+ t.after(()=>new Promise(resolve=>{for(const socket of sockets)socket.terminate();wss.close();server.closeAllConnections();server.close(resolve);}));
  const dir=path.join(home,'Library/Application Support/app.codeg');await fs.mkdir(dir,{recursive:true});
  const dbPath=path.join(dir,'codeg.db'),db=new DatabaseSync(dbPath);
  db.exec('CREATE TABLE app_metadata(key TEXT,value TEXT); CREATE TABLE conversation(id INTEGER,title TEXT,agent_type TEXT,external_id TEXT,folder_id INTEGER,status TEXT); CREATE TABLE folder(id INTEGER,path TEXT);');
@@ -221,6 +227,115 @@ test('native runtime registers, receives callbacks, rejects forged requests and 
  await until(()=>f.state.hooks.length===1);
  assert.equal((await fetch(target,{method:'POST',body:JSON.stringify(event('user_prompt_sent'))})).status,410);
  assert.equal((await snapshot()).sessions.length,0);
+});
+
+test('startup alignment seeds in-flight sessions once, then stays event-driven',async t=>{
+ const f=await fixture(t);f.state.streaming=true;f.state.seq=10;
+ f.state.connections=[{id:'connection-1',agent_type:'codex',status:'prompting'}];
+ f.state.snapshot={conversation_id:214,external_id:'thr-native',folder_id:1,status:'prompting',event_seq:10,pending_question:{question_id:'q1',questions:[{question:'Pick',options:[{label:'A'},{label:'B'}]}]}};
+ const hub=new Hub(),h=new CodegHooks(hub,f);t.after(()=>h.disable());
+ await h.install('http://127.0.0.1:8849');
+ const session=hub.sessions.get('codeg:214');
+ assert.equal(session.status,'wait','an in-flight session is visible without any new event');
+ assert.equal(session.title,'Build feature');assert.equal(session.cwd,'/project/test');
+ assert.equal(session.pending[0].id,'q1');assert.equal(session.pending[0].text,'Pick');
+ assert.equal(session.pending[0].questions[0].options[1].label,'B');
+ assert.equal(codegAppLink(session),'codeg://session/214');
+ const waitEvent=hub.snapshot().events.find(e=>e.kind==='wait');
+ assert.ok(waitEvent,'recovery emits the pending wait');assert.match(waitEvent.roundId,/^hook:\d+:\d+$/);
+ await until(()=>f.state.attaches?.length===1&&f.state.send);
+ assert.equal(f.state.attaches[0].since_seq,10,'stream cursor starts at the snapshot event_seq');
+ // One-shot: after the alignment window no scan may run during hooks or idle time.
+ f.state.startup=false;
+ const lists=()=>f.state.calls.filter(c=>c.method==='acp_list_connections').length;
+ assert.equal(lists(),1);
+ await h.ingestHook(event('question_request'));
+ await wait(150);
+ assert.equal(lists(),1,'runtime never lists connections again');
+ assert.equal(hub.sessions.get('codeg:214').pending[0].id,'q1');
+});
+
+test('startup alignment seeds a prompting session without any pending request',async t=>{
+ const f=await fixture(t);f.state.streaming=true;f.state.seq=9;
+ f.state.connections=[{id:'connection-1',agent_type:'codex',status:'prompting'}];
+ f.state.snapshot={conversation_id:214,external_id:'thr-native',folder_id:1,status:'prompting',event_seq:9};
+ const hub=new Hub(),h=new CodegHooks(hub,f);t.after(()=>h.disable());
+ await h.install('http://127.0.0.1:8849');
+ const session=hub.sessions.get('codeg:214');
+ assert.equal(session.status,'running','a prompting session without pending requests is seeded as running');
+ assert.equal(session.pending.length,0);
+ assert.equal(session.title,'Build feature');assert.equal(session.cwd,'/project/test');
+ assert.equal(codegAppLink(session),'codeg://session/214');
+ assert.ok(hub.snapshot().sessions.some(s=>s.id==='codeg:214'),'the recovered session is visible in the snapshot');
+ assert.equal(hub.snapshot().events.filter(e=>e.kind==='wait').length,0,'no pending request means no wait event');
+ await until(()=>f.state.attaches?.length===1);
+ assert.equal(f.state.attaches[0].since_seq,9,'stream cursor starts at the snapshot event_seq');
+});
+
+test('startup alignment seeds a connected connection that still carries a pending request',async t=>{
+ const f=await fixture(t);f.state.streaming=true;f.state.seq=4;
+ f.state.connections=[{id:'connection-1',agent_type:'codex',status:'connected'}];
+ f.state.snapshot={conversation_id:214,external_id:'thr-native',folder_id:1,status:'connected',event_seq:4,pending_question:{question_id:'q7',questions:[{question:'Keep waiting?'}]}};
+ const hub=new Hub(),h=new CodegHooks(hub,f);t.after(()=>h.disable());
+ await h.install('http://127.0.0.1:8849');
+ const session=hub.sessions.get('codeg:214');
+ assert.equal(session.status,'wait','a pending request outranks the connected status');
+ assert.equal(session.pending.length,1);assert.equal(session.pending[0].id,'q7');assert.equal(session.pending[0].text,'Keep waiting?');
+ assert.ok(hub.snapshot().events.some(e=>e.kind==='wait'),'the pending request is emitted as a wait event');
+ await until(()=>f.state.attaches?.length===1);
+ assert.equal(f.state.attaches[0].since_seq,4);
+});
+
+test('startup alignment skips idle, child and snapshot-less connections',async t=>{
+ const f=await fixture(t);addChild(f.dbPath);
+ f.state.connections=[{id:'idle'},{id:'child'},{id:'orphan'},{id:''}];
+ f.state.snapshots={
+  idle:{conversation_id:216,status:'connected',event_seq:3},
+  child:{conversation_id:215,status:'prompting',event_seq:4,pending_question:{question_id:'q9',questions:[{question:'Child?'}]}},
+  orphan:{status:'prompting',event_seq:5},
+ };
+ const hub=new Hub(),h=new CodegHooks(hub,f);t.after(()=>h.disable());
+ await h.install('http://127.0.0.1:8849');
+ assert.equal(hub.sessions.size,0,'idle, child and snapshot-less connections are never seeded');
+ assert.equal(h.streams.size,0,'skipped connections are never subscribed');
+ assert.equal(hub.snapshot().events.length,0);
+});
+
+test('recovered rounds reject stale frames, duplicate requests and late completion',async t=>{
+ const f=await fixture(t);f.state.streaming=true;f.state.seq=12;
+ f.state.connections=[{id:'connection-1'}];
+ f.state.snapshot={conversation_id:214,status:'prompting',event_seq:12,pending_question:{question_id:'q1',questions:[{question:'Pick'}]}};
+ const hub=new Hub(),h=new CodegHooks(hub,f);t.after(()=>h.disable());
+ await h.install('http://127.0.0.1:8849');
+ await until(()=>hub.sessions.get('codeg:214')?.status==='wait');
+ await until(()=>f.state.attaches?.length===1&&f.state.send);
+ f.state.send({type:'snapshot',event_seq:11,snapshot:{status:'connected'}});
+ await wait(60);assert.equal(hub.sessions.get('codeg:214').status,'wait','stale snapshot cannot clear the recovered wait');
+ f.state.send({type:'event',envelope:{seq:12,type:'question_request',connection_id:'connection-1',question_id:'q1',questions:[{question:'Pick'}]}});
+ await wait(60);assert.equal(hub.sessions.get('codeg:214').pending.length,1,'duplicate request is not replayed');
+ f.state.snapshot={conversation_id:214,status:'prompting',event_seq:12};
+ await h.ingestHook(event('turn_complete'));
+ await wait(60);assert.equal(hub.sessions.get('codeg:214').status,'wait','late completion cannot end a recovered round');
+ f.state.send({type:'event',envelope:{seq:13,type:'question_resolved',connection_id:'connection-1',question_id:'q1'}});
+ await until(()=>hub.sessions.get('codeg:214').status==='running');
+ await h.disable();await until(()=>f.state.sockets.size===0);
+});
+
+test('failed startup alignment degrades only codeg health and never retries',async t=>{
+ const f=await fixture(t);f.state.failList=true;
+ const hub=new Hub(),h=new CodegHooks(hub,f);
+ await h.install('http://127.0.0.1:8849');
+ assert.equal(h.registered,true,'registration survives an alignment failure');
+ assert.equal(hub.snapshot().sources.codeg.state,'error');
+ assert.match(hub.snapshot().sources.codeg.detail,/Codeg/);
+ assert.equal(hub.sessions.size,0);
+ const lists=()=>f.state.calls.filter(c=>c.method==='acp_list_connections').length;
+ assert.equal(lists(),1);
+ f.state.failList=false;
+ const count=f.state.calls.length;await h.poll();
+ assert.equal(f.state.calls.length,count,'no retry storm, no second scan after a failed alignment');
+ assert.equal(lists(),1);
+ await h.disable();
 });
 
 for(const native of [false,true])test(`confirmation stream lifecycle ${native?'native':'node'}`,{skip:native&&!process.env.CODEG_RUNTIME_BINARY},async t=>{

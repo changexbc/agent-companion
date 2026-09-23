@@ -26,7 +26,7 @@ export function askFromSnapshot(snap) {
 export class CodegHooks {
   constructor(hub,{home,dbPaths=defaultCodegDbPaths(home),fetchImpl=globalThis.fetch,now=Date.now,WebSocketImpl=globalThis.WebSocket}={}) {
     Object.assign(this,{hub,home,dbPaths,fetchImpl,now,WebSocketImpl});
-    this.url='';this.auth=null;this.registered=false;this.nextAttempt=0;this.enabled=true;this.sequence=0;this.connections=new Map();this.ignoredConnections=new Set();
+    this.url='';this.auth=null;this.registered=false;this.reconciled=false;this.nextAttempt=0;this.enabled=true;this.sequence=0;this.connections=new Map();this.ignoredConnections=new Set();
     this.streams=new Map();
     this.stateFile=path.join(home,'.agent-studio/codeg-webhook-node.json');
   }
@@ -48,7 +48,7 @@ export class CodegHooks {
     if(!response.ok)throw Error(`Codeg API HTTP ${response.status}`);
     return response.json();
   }
-  async install(base) {this.url=`${base}/api/codeg-webhook/${randomUUID()}`;this.registered=false;this.nextAttempt=0;await this.poll();}
+  async install(base) {this.url=`${base}/api/codeg-webhook/${randomUUID()}`;this.registered=false;this.reconciled=false;this.nextAttempt=0;await this.poll();}
   async poll() {
     // Only failed configuration is retried. No timer reads session state.
     if(!this.url){this.hub.health(SOURCE,'partial','Webhook 接收入口尚未启动');return;}
@@ -81,9 +81,15 @@ export class CodegHooks {
       await save({owned:url?[url]:[]});
       this.registered=true;
       this.hub.health(SOURCE,this.enabled?'ok':'disabled',this.enabled?'Webhook 已注册，等待 Codeg 事件（不扫描会话）':'已关闭监听');
+      // One-shot startup alignment; failures only show on codeg health.
+      if(this.enabled&&!this.reconciled){
+        this.reconciled=true;
+        try {await this.reconcileActiveConnections();}
+        catch(e) {this.hub.health(SOURCE,'error',e.message?.startsWith('Codeg')||e.message?.startsWith('请')||e.message?.startsWith('未')?e.message:'请确认 Codeg Web Service 可用');}
+      }
     } catch(e) {this.hub.health(SOURCE,this.enabled?'error':'disabled',this.enabled?`Webhook 注册失败：${e.message?.startsWith('Codeg')||e.message?.startsWith('请')||e.message?.startsWith('未')?e.message:'请确认 Codeg Web Service 可用'}`:'已关闭监听；Webhook 注销待重试');}
   }
-  async disable(){this.enabled=false;for(const stream of this.streams.values())stream.close();this.streams.clear();this.registered=false;this.nextAttempt=0;await this.poll();}
+  async disable(){this.enabled=false;for(const stream of this.streams.values())stream.close();this.streams.clear();this.registered=false;this.reconciled=false;this.nextAttempt=0;await this.poll();}
   metadata(sid) {
     const db=this.open();try{
       const tables=db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r=>r.name);
@@ -123,10 +129,9 @@ export class CodegHooks {
     if(active && active.seq!==null && ['question_request','permission_request'].includes(p.event))return true;
     if(p.event==='turn_complete'&&snap?.status==='prompting')return true;
     const ts=this.now(),seq=++this.sequence;
-    const base={source:SOURCE,sessionId:sid,ts,...meta,externalId:snap?.external_id||meta.externalId,folderId:snap?.folder_id??meta.folderId};
-    const send=e=>this.hub.ingest({...base,...e});
     const current=this.hub.sessions.get(`codeg:${sid}`);
-    if(p.event==='user_prompt_sent'||!current)send({type:'start',roundId:`hook:${ts}:${seq}`,title:meta.title||String(p.body||'Codeg').slice(0,240)});
+    const base=this.seedSession(sid,snap,meta,ts,seq,p.event==='user_prompt_sent'||!current,String(p.body||'Codeg').slice(0,240));
+    const send=e=>this.hub.ingest({...base,...e});
     if((p.event==='question_request'||p.event==='permission_request') && !['done','error','aborted'].includes(this.hub.sessions.get(`codeg:${sid}`)?.status)) {
       const ask=askFromSnapshot(snap);
       const fields=Array.isArray(p.fields)?p.fields:[];
@@ -141,6 +146,48 @@ export class CodegHooks {
     if(Number.isSafeInteger(snap?.event_seq)){const stream=this.streams.get(p.connection_id);if(stream)stream.seq=Math.max(stream.seq??-1,snap.event_seq);}
     this.hub.health(SOURCE,'ok','已收到 Codeg Webhook；确认状态通过实时事件同步');
     return true;
+  }
+  // Shared by the webhook path and the startup alignment so both emit the same
+  // `start` shape and round id. `startBody` only fills in when the session
+  // metadata has no title.
+  seedSession(sid,snap,meta,ts,seq,start,startBody) {
+    const base={source:SOURCE,sessionId:sid,ts,...meta,externalId:snap?.external_id||meta.externalId,folderId:snap?.folder_id??meta.folderId};
+    if(start)this.hub.ingest({...base,type:'start',roundId:`hook:${ts}:${seq}`,title:meta.title||startBody});
+    return base;
+  }
+  // One-shot alignment at startup or enablement: enumerate live connections,
+  // then re-seed only the in-flight ones, because a session waiting for a
+  // delegated child emits no events at all. Never runs again while registered.
+  async reconcileActiveConnections() {
+    const listed=await this.post('acp_list_connections');
+    if(!Array.isArray(listed))throw Error('Codeg 连接列表无效');
+    const limit=64;let attempted=0,failed=0;
+    for(const row of listed.slice(0,limit)) {
+      const conn=typeof row?.id==='string'?row.id:String(row?.id??'');
+      if(!conn.trim()||conn.length>256)continue;
+      attempted++;
+      let snap;try {snap=await this.post('acp_get_session_snapshot',{connectionId:conn});}catch{failed++;continue;}
+      if(!this.enabled)return;
+      const sid=String(snap?.conversation_id??'');
+      if(!sid)continue;
+      let meta={};try {meta=this.metadata(sid);}catch{}
+      if(meta.isSubagent)continue;
+      // A webhook may have won the race; never start a round twice or revive
+      // the one the hub already finished.
+      if(this.hub.sessions.has(`codeg:${sid}`))continue;
+      if(snap?.status!=='prompting'&&!['pending_question','pending_permission','pending_plan_approval'].some(key=>snap[key]!=null))continue;
+      this.connections.set(conn,sid);
+      const ts=this.now(),seq=++this.sequence;
+      this.seedSession(sid,snap,meta,ts,seq,true,'');
+      this.reconcileSnapshot(sid,snap);
+      this.attachStream(conn,sid);
+      if(Number.isSafeInteger(snap?.event_seq)){const stream=this.streams.get(conn);if(stream)stream.seq=Math.max(stream.seq??-1,snap.event_seq);}
+    }
+    // One health write: a second note must not erase the first.
+    const notes=[];
+    if(attempted&&failed===attempted)notes.push('启动对齐未能读取会话快照');
+    if(listed.length>limit)notes.push('Codeg 连接数超出上限，仅对齐前 64 条');
+    if(notes.length)this.hub.health(SOURCE,'partial',notes.join('；'));
   }
   reconcileSnapshot(sid,snap,authoritative=false) {
     const session=this.hub.sessions.get(`codeg:${sid}`);

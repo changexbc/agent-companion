@@ -10,10 +10,13 @@ pub const CODEG_EVENTS: [&str; 5] = [
     "turn_complete",
     "error",
 ];
+/// The one-shot startup alignment enumerates at most this many connections.
+const CODEG_ALIGN_LIMIT: usize = 64;
 #[derive(Default)]
 pub struct CodegHooks {
     pub url: String,
     pub registered: bool,
+    pub reconciled: bool,
     pub next_attempt: Option<Instant>,
     auth: Option<(u16, String)>,
     connections: HashMap<String, String>,
@@ -96,6 +99,7 @@ impl Collector {
     pub fn configure_codeg_webhook(&mut self, url: String) {
         self.codeg.url = url;
         self.codeg.registered = false;
+        self.codeg.reconciled = false;
         self.codeg.next_attempt = None;
     }
     pub fn maintain_codeg_webhook(&mut self) -> Result<(), String> {
@@ -200,6 +204,13 @@ impl Collector {
                 "已关闭监听"
             },
         );
+        // One-shot startup alignment; failures only show on codeg health.
+        if enabled && !self.codeg.reconciled {
+            self.codeg.reconciled = true;
+            if let Err(e) = self.reconcile_codeg_connections() {
+                self.hub.health("codeg", "error", &e);
+            }
+        }
         Ok(())
     }
     pub fn inspect_codeg_webhook(&self) -> Result<(&'static str, String), String> {
@@ -402,25 +413,10 @@ impl Collector {
         let ts = now();
         self.codeg.sequence += 1;
         let seq = self.codeg.sequence;
-        let mut base = merge(meta, json!({"source":"codeg","sessionId":sid,"ts":ts}));
-        if !snap["external_id"].is_null() {
-            base["externalId"] = snap["external_id"].clone();
-        }
-        if !snap["folder_id"].is_null() {
-            base["folderId"] = snap["folder_id"].clone();
-        }
         let k = format!("codeg:{sid}");
-        if event == "user_prompt_sent" || self.hub.sessions.get(&k).is_none() {
-            let title = if text(&base["title"]).is_empty() {
-                text(&p["body"])
-            } else {
-                text(&base["title"])
-            };
-            self.hub.ingest(merge(
-                base.clone(),
-                json!({"type":"start","roundId":format!("hook:{ts}:{seq}"),"title":title}),
-            ));
-        }
+        let start_title = (event == "user_prompt_sent" || self.hub.sessions.get(&k).is_none())
+            .then(|| text(&p["body"]));
+        let base = self.codeg_seed_session(&sid, &snap, &meta, ts, seq, start_title.as_deref());
         if matches!(event.as_str(), "question_request" | "permission_request")
             && !crate::hub::terminal(&text(&self.hub.sessions[&k]["status"]))
         {
@@ -476,15 +472,7 @@ impl Collector {
             self.reconcile_codeg_snapshot(&sid, &snap, false);
         }
         self.attach_codeg_stream(&conn, &sid);
-        if let (Some(seq), Some(stream)) =
-            (snap["event_seq"].as_u64(), self.codeg.streams.get(&conn))
-        {
-            let old = stream.seq.load(std::sync::atomic::Ordering::Acquire);
-            stream.seq.store(
-                if old == u64::MAX { seq } else { old.max(seq) },
-                std::sync::atomic::Ordering::Release,
-            );
-        }
+        self.codeg_sync_stream_cursor(&conn, &snap);
         self.hub.health(
             "codeg",
             "ok",
@@ -513,6 +501,127 @@ fn request_id(value: &Value) -> Option<&str> {
         .filter(|s| !s.is_empty())
 }
 impl Collector {
+    /// One-shot alignment at startup or integration enablement: enumerate live
+    /// connections, then re-seed only the in-flight ones, because a session that
+    /// waits for a delegated child emits no events at all. Never called again;
+    /// runtime stays purely event-driven.
+    fn reconcile_codeg_connections(&mut self) -> Result<(), String> {
+        let auth = self
+            .codeg
+            .auth
+            .clone()
+            .ok_or_else(|| "Codeg Web Service 不可用".to_string())?;
+        let listed = post(&auth, "acp_list_connections", json!({}))?;
+        let rows = listed
+            .as_array()
+            .cloned()
+            .ok_or("Codeg 连接列表无效".to_string())?;
+        let mut attempted = 0usize;
+        let mut failed = 0usize;
+        for row in rows.iter().take(CODEG_ALIGN_LIMIT) {
+            let conn = text(&row["id"]);
+            if conn.trim().is_empty() || conn.len() > 256 {
+                continue;
+            }
+            attempted += 1;
+            let snap = match post(&auth, "acp_get_session_snapshot", json!({"connectionId":conn})) {
+                Ok(snap) => snap,
+                Err(_) => {
+                    failed += 1;
+                    continue;
+                }
+            };
+            let sid = text(&snap["conversation_id"]);
+            if sid.is_empty() {
+                continue;
+            }
+            let meta = self.codeg_metadata(&sid).unwrap_or(json!({}));
+            if meta["isSubagent"] == true {
+                continue;
+            }
+            // A webhook may have won the race; never start a round twice or
+            // revive the one the hub already finished.
+            if self.hub.sessions.contains_key(&format!("codeg:{sid}")) {
+                continue;
+            }
+            let pending = [
+                "pending_question",
+                "pending_permission",
+                "pending_plan_approval",
+            ]
+            .iter()
+            .any(|key| !snap[*key].is_null());
+            if snap["status"] != "prompting" && !pending {
+                continue;
+            }
+            self.codeg.connections.insert(conn.clone(), sid.clone());
+            let ts = now();
+            self.codeg.sequence += 1;
+            let seq = self.codeg.sequence;
+            self.codeg_seed_session(&sid, &snap, &meta, ts, seq, Some(""));
+            self.reconcile_codeg_snapshot(&sid, &snap, false);
+            self.attach_codeg_stream(&conn, &sid);
+            self.codeg_sync_stream_cursor(&conn, &snap);
+        }
+        // One health write: a second note must not erase the first.
+        let mut notes = Vec::new();
+        if attempted > 0 && failed == attempted {
+            notes.push("启动对齐未能读取会话快照");
+        }
+        if rows.len() > CODEG_ALIGN_LIMIT {
+            notes.push("Codeg 连接数超出上限，仅对齐前 64 条");
+        }
+        if !notes.is_empty() {
+            self.hub.health("codeg", "partial", &notes.join("；"));
+        }
+        Ok(())
+    }
+    /// Shared by the webhook path and the startup alignment so both emit the
+    /// same `start` shape and round id. `start_body` only fills in when the
+    /// session metadata has no title.
+    fn codeg_seed_session(
+        &mut self,
+        sid: &str,
+        snap: &Value,
+        meta: &Value,
+        ts: i64,
+        seq: u64,
+        start_body: Option<&str>,
+    ) -> Value {
+        let mut base = merge(
+            meta.clone(),
+            json!({"source":"codeg","sessionId":sid,"ts":ts}),
+        );
+        if !snap["external_id"].is_null() {
+            base["externalId"] = snap["external_id"].clone();
+        }
+        if !snap["folder_id"].is_null() {
+            base["folderId"] = snap["folder_id"].clone();
+        }
+        if let Some(body) = start_body {
+            let title = if text(&base["title"]).is_empty() {
+                body.to_string()
+            } else {
+                text(&base["title"])
+            };
+            self.hub.ingest(merge(
+                base.clone(),
+                json!({"type":"start","roundId":format!("hook:{ts}:{seq}"),"title":title}),
+            ));
+        }
+        base
+    }
+    fn codeg_sync_stream_cursor(&mut self, conn: &str, snap: &Value) {
+        if let (Some(seq), Some(stream)) =
+            (snap["event_seq"].as_u64(), self.codeg.streams.get(conn))
+        {
+            let old = stream.seq.load(std::sync::atomic::Ordering::Acquire);
+            stream.seq.store(
+                if old == u64::MAX { seq } else { old.max(seq) },
+                std::sync::atomic::Ordering::Release,
+            );
+        }
+    }
     fn attach_codeg_stream(&mut self, conn: &str, sid: &str) {
         if self.codeg.streams.get(conn).is_some_and(|s| s.sid == sid) {
             return;
