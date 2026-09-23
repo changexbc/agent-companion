@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { createRequire } from 'node:module';
+const { wsServer: WebSocketServer }=createRequire(import.meta.url)('../node_modules/playwright-core/lib/utilsBundle.js');
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -39,6 +41,24 @@ async function fixture(t) {
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  t.after(()=>new Promise(r=>server.close(r)));
+ const sockets=new Set();state.sockets=sockets;
+ const wss=new WebSocketServer({noServer:true,handleProtocols:protocols=>protocols.has('codeg-events')?'codeg-events':false});
+ server.on('upgrade',(req,socket,head)=>{
+  if(!state.streaming){socket.destroy();return;}
+  assert.equal(req.url,'/ws/events');
+  assert.ok(req.headers['sec-websocket-protocol'].includes('codeg-token.'+Buffer.from('secret-test-token').toString('base64url')));
+  wss.handleUpgrade(req,socket,head,ws=>{
+   sockets.add(ws);ws.on('close',()=>sockets.delete(ws));
+   ws.on('message',data=>{
+    const frame=JSON.parse(data);assert.equal(frame.action,'attach');
+    state.attaches??=[];state.attaches.push(frame);
+    state.send=payload=>ws.send(JSON.stringify({subscription_id:frame.subscription_id,connection_id:frame.connection_id,...payload}));
+    if(state.replay&&frame.since_seq!==null)state.send({type:'replay',high_water_seq:state.seq,events:state.replay});
+    else state.send({type:'snapshot',event_seq:state.seq??0,snapshot:state.snapshot});
+   });
+  });
+ });
+ t.after(()=>{for(const socket of sockets)socket.terminate();wss.close();});
  const dir=path.join(home,'Library/Application Support/app.codeg');await fs.mkdir(dir,{recursive:true});
  const dbPath=path.join(dir,'codeg.db'),db=new DatabaseSync(dbPath);
  db.exec('CREATE TABLE app_metadata(key TEXT,value TEXT); CREATE TABLE conversation(id INTEGER,title TEXT,agent_type TEXT,external_id TEXT,folder_id INTEGER,status TEXT); CREATE TABLE folder(id INTEGER,path TEXT);');
@@ -201,4 +221,65 @@ test('native runtime registers, receives callbacks, rejects forged requests and 
  await until(()=>f.state.hooks.length===1);
  assert.equal((await fetch(target,{method:'POST',body:JSON.stringify(event('user_prompt_sent'))})).status,410);
  assert.equal((await snapshot()).sessions.length,0);
+});
+
+for(const native of [false,true])test(`confirmation stream lifecycle ${native?'native':'node'}`,{skip:native&&!process.env.CODEG_RUNTIME_BINARY},async t=>{
+ const f=await fixture(t);f.state.streaming=true;f.state.seq=10;
+ f.state.snapshot={conversation_id:214,status:'prompting',event_seq:10,pending_question:{question_id:'q1',questions:[{question:'Pick'}]}};
+ let deliver,session,disable;
+ if(native){
+  const child=spawn(process.env.CODEG_RUNTIME_BINARY,['serve','--home',f.home],{stdio:'ignore'});t.after(()=>child.kill());
+  const endpoint=await until(async()=>{try{return JSON.parse(await fs.readFile(path.join(f.home,'.agent-studio/runtime-v1.json'),'utf8'));}catch{return null;}});
+  const rpc=async(command,payload={})=>(await fetch(`http://127.0.0.1:${endpoint.port}/rpc`,{method:'POST',headers:{Authorization:`Bearer ${endpoint.token}`},body:JSON.stringify({command,payload})})).json();
+  await rpc('hello',{client:'test'});
+  const target=await until(()=>f.state.hooks.find(w=>w.url.startsWith('http://127.0.0.1'))?.url);
+  deliver=p=>fetch(target,{method:'POST',body:JSON.stringify(p)});
+  session=async()=>(await rpc('poll',{client:'test'})).value.snapshot.sessions.find(s=>s.id==='codeg:214');
+  disable=async()=>{f.settings.sources.codeg.enabled=false;await rpc('settings_set',f.settings);};
+ }else{
+  const hub=new Hub(),h=new CodegHooks(hub,f);t.after(()=>h.disable());
+  deliver=p=>h.ingestHook(p);session=()=>hub.sessions.get('codeg:214');disable=()=>h.disable();
+ }
+ await deliver(event('question_request'));await until(()=>f.state.send);
+ await until(async()=>(await session())?.status==='wait');
+ const emit=(seq,type,fields={})=>f.state.send({type:'event',envelope:{seq,type,connection_id:'connection-1',...fields}});
+ emit(11,'question_resolved',{question_id:'q1'});await until(async()=>(await session()).status==='running');
+ f.state.fail=true;await deliver(event('question_request'));assert.equal((await session()).status,'running');f.state.fail=false;
+ emit(12,'permission_request',{request_id:'p1',tool_call:{title:'Allow?'}});
+ emit(13,'plan_approval_request',{approval_id:'a1',plan_markdown:'Plan'});
+ await until(async()=>(await session()).pending.length===2);
+ emit(14,'permission_resolved',{request_id:'p1'});await until(async()=>(await session()).pending.length===1);
+ emit(11,'question_resolved',{question_id:'a1'});await wait(60);assert.equal((await session()).status,'wait');
+ emit(15,'plan_approval_resolved',{approval_id:'a1'});await until(async()=>(await session()).status==='running');
+ emit(16,'question_request',{question_id:'q2',questions:[{question:'Again'}]});await until(async()=>(await session()).status==='wait');
+ f.state.snapshot={conversation_id:214,status:'prompting',event_seq:15};
+ await deliver(event('user_prompt_sent'));assert.equal((await session()).status,'wait','older HTTP snapshot cannot erase a newer stream request');
+ f.state.send({type:'snapshot',event_seq:14,snapshot:{status:'prompting'}});await wait(60);assert.equal((await session()).status,'wait');
+ f.state.seq=17;f.state.snapshot={conversation_id:214,status:'prompting',event_seq:17};
+ f.state.send({type:'detached',reason:'lagged'});await until(()=>f.state.attaches.length===2);
+ await until(async()=>(await session()).status==='running');
+ assert.equal(f.state.attaches[1].since_seq,16);
+ emit(18,'question_request',{question_id:'q3',questions:[{question:'Replay?'}]});await until(async()=>(await session()).status==='wait');
+ f.state.seq=19;f.state.replay=[{seq:19,type:'question_resolved',connection_id:'connection-1',question_id:'q3'}];
+ f.state.send({type:'detached',reason:'lagged'});await until(()=>f.state.attaches.length===3);
+ await until(async()=>(await session()).status==='running');assert.equal(f.state.attaches[2].since_seq,18);
+ emit(20,'turn_complete');await until(async()=>(await session()).status==='done');
+ emit(21,'question_request',{question_id:'late',questions:[{question:'Late'}]});await wait(60);assert.equal((await session()).status,'done');
+ f.state.snapshot={conversation_id:214,status:'connected',event_seq:21};
+ await deliver(event('user_prompt_sent'));assert.equal((await session()).status,'done','late prompt webhook cannot revive a completed stream round');
+ f.state.snapshot={conversation_id:214,status:'prompting',event_seq:30};
+ await deliver(event('user_prompt_sent'));await until(async()=>(await session()).status==='running');
+ await deliver(event('turn_complete'));assert.equal((await session()).status,'running','old completion cannot end a prompting snapshot');
+ emit(22,'turn_complete');await wait(60);assert.equal((await session()).status,'running','old stream completion cannot end new turn');
+ emit(31,'question_request',{question_id:'gap',questions:[{question:'Finish offline?'}]});await until(async()=>(await session()).status==='wait');
+ f.state.send({type:'snapshot',event_seq:32,snapshot:{status:'connected',pending_question:{}}});
+ await wait(60);assert.equal((await session()).status,'wait','unrecognized pending payload is not proof of completion');
+ f.state.replay=null;f.state.seq=33;f.state.snapshot={conversation_id:214,status:'connected',event_seq:33};
+ f.state.send({type:'detached',reason:'lagged'});await until(()=>f.state.attaches.length===4);
+ await until(async()=>(await session()).status==='done');
+ assert.equal(f.state.attaches[3].since_seq,32,'replay gap uses authoritative idle snapshot to clear old wait');
+ f.state.snapshot={conversation_id:214,status:'prompting',event_seq:40};
+ await deliver(event('user_prompt_sent'));await until(async()=>(await session()).status==='running');
+ f.state.fail=true;await deliver(event('error'));await until(async()=>(await session()).status==='error');
+ f.state.fail=false;await disable();await until(()=>f.state.sockets.size===0);
 });

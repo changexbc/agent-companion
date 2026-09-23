@@ -157,6 +157,8 @@ fn serve() -> Result<(), String> {
         Option<std::sync::mpsc::Sender<Result<Value, String>>>,
     );
     let (jobs, receiver) = std::sync::mpsc::channel::<Job>();
+    let stream_jobs=jobs.clone();
+    collector.set_codeg_stream_sink(std::sync::Arc::new(move |frame| { let _=stream_jobs.send(("codeg_stream".into(),frame,None)); }));
     let (updates, changes) = std::sync::mpsc::channel::<Value>();
     let initial_settings = collector.settings.clone();
     let codeg_integrated = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
@@ -174,7 +176,10 @@ fn serve() -> Result<(), String> {
             }
             match receiver.recv_timeout(Duration::from_millis(100)) {
                 Ok((command, payload, reply)) => {
-                    let result = if command == "hook" {
+                    if command == "shutdown" { break; }
+                    let result = if command == "codeg_stream" {
+                        Ok(json!(collector.ingest_codeg_stream(&payload)))
+                    } else if command == "hook" {
                         Ok(json!(collector.ingest_hook(&payload)))
                     } else if command == "integrations_get" {
                         Ok(integrations::get(&collector))
@@ -192,7 +197,9 @@ fn serve() -> Result<(), String> {
                         let _ = install_hooks(&collector);
                         poll_at = Instant::now() - Duration::from_secs(5);
                     }
-                    let _ = updates.send(collector.hub.snapshot());
+                    if command != "codeg_stream" || result.as_ref().is_ok_and(|v|v==&json!(true)) {
+                        let _ = updates.send(collector.hub.snapshot());
+                    }
                     if let Some(reply) = reply {
                         let _ = reply.send(result);
                     }
@@ -378,6 +385,7 @@ fn serve() -> Result<(), String> {
             ),
         );
     }
+    let _=jobs.send(("shutdown".into(),Value::Null,None));
     drop(jobs);
     let _ = worker.join();
     let _ = std::fs::remove_file(endpoint(&home));

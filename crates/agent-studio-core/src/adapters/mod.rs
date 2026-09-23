@@ -1,4 +1,5 @@
 mod codeg;
+mod codeg_stream;
 pub use codeg::{CodegHooks, CODEG_EVENTS, merge_codeg_webhooks};
 mod codex;
 mod ide;
@@ -165,7 +166,9 @@ impl Collector {
                             // Unregister against the old path before switching configuration.
                             self.stop_codeg_webhook();
                             let url=self.codeg.url.clone();
+                            let sink=self.codeg.stream_sink.clone();
                             self.codeg=Default::default();
+                            self.codeg.stream_sink=sink;
                             self.configure_codeg_webhook(url);
                         }
                         if id == "codex" {
