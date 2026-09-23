@@ -88,8 +88,8 @@ test('CodeBuddy IDE links open the project folder, not a conversation id',()=>{
 test('the VS Code plugin keeps the IDE source but becomes a VS Code host',()=>{
  assert.equal(isCodeBuddyVSCodeHost({source:'codebuddy-ide',hostKind:'vscode'}),true);
  for(const s of [null,{source:'codex',hostKind:'vscode'},{source:'codebuddy-ide'},{source:'codebuddy-ide',hostKind:'codebuddy-ide'},{source:'codebuddy-ide',hostKind:'cursor'}])assert.equal(isCodeBuddyVSCodeHost(s),false);
- assert.deepEqual(sessionBadge({source:'codebuddy-ide',hostKind:'vscode'}),{host:'codebuddy-ide',id:'codebuddy-vscode',label:'VS Code'});
- assert.deepEqual(sessionBadge({source:'codebuddy-ide',hostKind:'vscode',agentType:'codebuddycn'}),{host:'codebuddy-ide',id:'codebuddy-vscode',label:'VS Code'});
+ assert.deepEqual(sessionBadge({source:'codebuddy-ide',hostKind:'vscode'}),{host:'codebuddy-ide',id:'codebuddy-vscode',label:'VS Code',avatar:'codebuddy-vscode'});
+ assert.deepEqual(sessionBadge({source:'codebuddy-ide',hostKind:'vscode',agentType:'codebuddycn'}),{host:'codebuddy-ide',id:'codebuddy-vscode',label:'VS Code',avatar:'codebuddy-vscode'});
  for(const cwd of ['/Users/apple/Work/a b?','/work/app'])assert.equal(hasOpenableFolder(cwd),true);
  for(const cwd of [undefined,'',' ','/','///','relative/path'])assert.equal(hasOpenableFolder(cwd),false);
  // VS Code's URL handler always targets the last active window, so the session

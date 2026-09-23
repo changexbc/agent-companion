@@ -19,12 +19,16 @@ export function providerLabel(item: RailItem, presentation: SessionPresentation)
 /**
  * One or two icons, depending on whether the badge names a host *and* a nested
  * agent. Unknown ids fall back to their initial rather than a broken image.
+ *
+ * `hostOnly` is the single icon drawn on the rail avatar: `avatar` wins when a
+ * badge names its own application, so a CodeBuddy VS Code plugin session wears
+ * the plugin's mark instead of the IDE icon it shares a source with.
  */
 export function ProviderIcons({item, presentation, hostOnly = false}: {item: RailItem; presentation: SessionPresentation; hostOnly?: boolean}) {
   const info = presentation.badge;
   const nested = Boolean(info?.host && info.host !== info.id);
   const ids = hostOnly
-    ? [info?.host || item.session.source]
+    ? [info?.avatar || info?.host || item.session.source]
     : nested ? [info!.host, info!.id] : [info?.id || item.session.source];
   return (
     <>

@@ -12,7 +12,13 @@ export interface LinkableSession {
   sourceLabel?: string;
 }
 
-export interface SessionBadge { host: string; id: string; label: string }
+export interface SessionBadge {
+  host: string;
+  id: string;
+  label: string;
+  /** The single icon the rail avatar wears; defaults to `host`. */
+  avatar?: string;
+}
 
 export const SESSION_WINDOW = {x:14,y:18,width:484,height:232};
 export const SESSION_BUTTON = {x:385,y:250,width:110,height:25,radius:6};
@@ -61,7 +67,7 @@ export function nestedAgentId(agentType?: string): string | null {
 export function sessionBadge(session?: LinkableSession | null): SessionBadge | null {
   if(!session?.source)return null;
   if(isCustomSource(session.source))return {host:session.source,id:session.source,label:customSourceLabel(session)};
-  if(isCodeBuddyVSCodeHost(session))return {host:'codebuddy-ide',id:'codebuddy-vscode',label:'VS Code'};
+  if(isCodeBuddyVSCodeHost(session))return {host:'codebuddy-ide',id:'codebuddy-vscode',label:'VS Code',avatar:'codebuddy-vscode'};
   if(session.source==='codeg'){
     const nested=nestedAgentId(session.agentType);
     if(nested)return {host:'codeg',id:nested,label:sourceLabel(nested)==='未绑定'?String(session.agentType):sourceLabel(nested)};
