@@ -1,5 +1,6 @@
 pub mod adapters;
 pub mod codex_read_state;
+pub mod custom;
 pub mod host_process;
 pub mod hub;
 pub mod settings;
@@ -10,6 +11,19 @@ pub fn now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
+}
+/// Stable hook executable the app publishes under the user's home. Both the
+/// built-in integrations and the custom hook command point at this path.
+pub fn hook_binary(home: &std::path::Path) -> std::path::PathBuf {
+    home.join(if cfg!(windows) {
+        ".agent-studio/bin/agent-studio-runtime-v1.exe"
+    } else {
+        ".agent-studio/bin/agent-studio-runtime-v1"
+    })
+}
+/// Single-quoted shell argument, safe to paste into another tool's hook config.
+pub fn shell_quote(path: &std::path::Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
 }
 pub fn text(v: &Value) -> String {
     match v {

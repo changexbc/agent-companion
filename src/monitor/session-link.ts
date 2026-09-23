@@ -6,6 +6,8 @@ export interface LinkableSession {
   agentType?: string;
   sessionId?: string;
   cwd?: string;
+  /** Display name an imported custom source carries on every event. */
+  sourceLabel?: string;
 }
 
 export interface SessionBadge { host: string; id: string; label: string }
@@ -31,7 +33,22 @@ export function sourceLabel(source?: string, agentType?: string) {
   }
   return source==='codex'?'Codex':source==='codeg'?'Codeg':source==='grok'?'Grok':source==='claude'?'Claude':'未绑定';
 }
+/**
+ * An imported custom source (`custom:<id>`) has no built-in name or icon: the
+ * template name rides on the session as `sourceLabel`, and the id is the
+ * fallback when an older snapshot predates it.
+ */
+export function isCustomSource(source?: string) {
+  return typeof source==='string' && /^custom:[a-z][a-z0-9-]{0,63}$/.test(source);
+}
+function customSourceLabel(session?: LinkableSession | null) {
+  const name=typeof session?.sourceLabel==='string'?session.sourceLabel.trim():'';
+  if(name)return name;
+  const id=String(session?.source||'').slice('custom:'.length);
+  return id||'自定义来源';
+}
 export function sessionSourceLabel(session?: LinkableSession | null) {
+  if(isCustomSource(session?.source))return customSourceLabel(session);
   return sourceLabel(session?.source, session?.agentType);
 }
 export function nestedAgentId(agentType?: string): string | null {
@@ -41,6 +58,7 @@ export function nestedAgentId(agentType?: string): string | null {
 }
 export function sessionBadge(session?: LinkableSession | null): SessionBadge | null {
   if(!session?.source)return null;
+  if(isCustomSource(session.source))return {host:session.source,id:session.source,label:customSourceLabel(session)};
   if(session.source==='codeg'){
     const nested=nestedAgentId(session.agentType);
     if(nested)return {host:'codeg',id:nested,label:sourceLabel(nested)==='未绑定'?String(session.agentType):sourceLabel(nested)};

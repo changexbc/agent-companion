@@ -63,6 +63,8 @@ export interface Session {
   // Present only once an adapter has observed them.
   folderId?: string | number;
   agentType?: string;
+  /** Display name of an imported `custom:<id>` source, taken from its template. */
+  sourceLabel?: string;
   externalId?: string;
   webPort?: number;
   permissionChecks?: string[];

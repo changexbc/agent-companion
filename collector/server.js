@@ -41,6 +41,25 @@ export async function startServer({ port = 8849, collector = createCollector(), 
       }
       return;
     }
+    if (url === '/api/custom-integrations' || url === '/api/custom-integrations/preview') {
+      const preview = url.endsWith('/preview');
+      if (!collector.customIntegrationsGet || !collector.customIntegrationsSet || !collector.customPreview) { res.writeHead(503).end('Custom integrations unavailable'); return; }
+      const fail = e => { res.writeHead(400, {'Content-Type':'application/json'}); res.end(JSON.stringify({error: e.message})); };
+      if (!preview && req.method === 'GET') {
+        try { res.setHeader('Content-Type','application/json'); res.end(JSON.stringify(await collector.customIntegrationsGet())); } catch (e) { fail(e); }
+        return;
+      }
+      if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+      if (!String(req.headers['content-type']).startsWith('application/json')) { res.writeHead(415).end(); return; }
+      let body = '';
+      try {
+        for await (const chunk of req) { body += chunk; if (Buffer.byteLength(body) > 2 * 1024 * 1024) { res.writeHead(413).end(); return; } }
+        const data = JSON.parse(body);
+        const value = preview ? await collector.customPreview(data) : await collector.customIntegrationsSet(data);
+        res.setHeader('Content-Type','application/json'); res.end(JSON.stringify(value));
+      } catch (e) { fail(e); }
+      return;
+    }
     if (req.method === 'POST' && (url === collector.codegWebhookPath?.() || url === '/api/codex-hook' || url === '/api/workbuddy-hook' || url === '/api/codebuddy-ide-hook')) {
       if (url === collector.codegWebhookPath?.() && collector.getSettings?.().sources.codeg.enabled !== true) {
         res.writeHead(410).end(); return;
@@ -57,6 +76,19 @@ export async function startServer({ port = 8849, collector = createCollector(), 
         else await collector.ingestCodexHook?.(payload);
         res.writeHead(204).end();
       } catch { res.writeHead(400).end(); }
+      return;
+    }
+    if (req.method === 'POST' && url === '/api/custom-hook') {
+      // Development path for a manually configured hook; the packaged app uses
+      // the runtime's `custom-hook` command over the local IPC endpoint.
+      const chunks = []; let size = 0;
+      try {
+        for await (const chunk of req) { size += chunk.length; if (size > 2 * 1024 * 1024) { res.writeHead(413).end(); return; } chunks.push(chunk); }
+        const payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        const outcome = await collector.ingestCustomHook?.(payload);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(outcome ?? null));
+      } catch (e) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: e.message })); }
       return;
     }
     if (req.method !== 'GET') { res.writeHead(405).end(); return; }

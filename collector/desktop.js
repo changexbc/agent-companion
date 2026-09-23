@@ -58,6 +58,10 @@ export async function startDesktopCollector({ home = process.env.AGENT_STUDIO_HO
           case 'settings_get': value = collector.getSettings(); break;
           case 'settings_set': value = await collector.updateSettings(request.payload); break;
           case 'settings_check': value = await collector.checkSource(request.payload); break;
+          case 'custom_integrations_get': value = await collector.customIntegrationsGet(); break;
+          case 'custom_integrations_set': value = await collector.customIntegrationsSet(request.payload); break;
+          case 'custom_preview': value = await collector.customPreview(request.payload); break;
+          case 'custom_hook': value = await collector.ingestCustomHook(request.payload); break;
           default: throw Error('未知的采集命令');
         }
         emit({ type: 'reply', id: request.id, value });

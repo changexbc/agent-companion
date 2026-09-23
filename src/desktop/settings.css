@@ -47,3 +47,17 @@ fieldset:disabled button,fieldset:disabled select,fieldset:disabled input{cursor
 .integration-actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
 .integration-manager button{font-size:11px;padding:6px 10px;min-height:30px}
 .integration-item summary:focus-visible{outline:2px solid #477d66;outline-offset:4px}
+
+.custom-import{border:1px dashed #cfdcd3;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.custom-import input[type=file]{font-size:11px;color:#587363;max-width:100%}
+.custom-payload span{display:block;font-size:10px;color:#819187;margin-bottom:6px}
+.custom-payload textarea{width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;line-height:1.6;color:#294239;background:#fbfdfb;border:1px solid #dbe5dd;border-radius:6px;padding:8px;resize:vertical}
+.custom-source-fallback{display:flex;align-items:center;justify-content:center;width:22px;height:22px;flex-shrink:0;border-radius:5px;background:#e8efe8;color:#587363;font-size:11px;font-weight:600}
+.custom-command{display:flex;align-items:flex-start;gap:10px;margin-top:8px}
+.custom-command code{flex:1;min-width:0;font-size:10px;line-height:1.7;color:#4c6156;background:#f1f6f2;border:1px solid #dbe5dd;border-radius:6px;padding:8px;overflow-wrap:anywhere}
+.custom-setup ol{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.custom-setup code{display:inline;margin:0;padding:1px 4px;background:#f1f6f2;border:1px solid #dbe5dd;border-radius:4px}
+.integration-detail[data-state=error]{color:#8a5a2b}
+.integration-detail[data-state=ok]{color:#4c6156}
+.custom-integration-manager>.section-hint{margin-bottom:16px}
+.custom-integration-manager button{font-size:11px;padding:6px 10px;min-height:30px}

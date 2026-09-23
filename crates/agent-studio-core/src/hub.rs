@@ -45,10 +45,13 @@ impl Hub {
             "externalId",
             "webPort",
             "hostKind",
+            "sourceLabel",
         ] {
             if !ev[key].is_null() && !text(&ev[key]).is_empty() {
                 s[key] = if key == "title" {
                     json!(text(&ev[key]).chars().take(240).collect::<String>())
+                } else if key == "sourceLabel" {
+                    json!(text(&ev[key]).chars().take(60).collect::<String>())
                 } else {
                     ev[key].clone()
                 };

@@ -2,6 +2,7 @@ mod codeg;
 mod codeg_stream;
 pub use codeg::{CodegHooks, CODEG_EVENTS, merge_codeg_webhooks};
 mod codex;
+pub mod custom;
 mod ide;
 pub use ide::{
     codebuddy_edition, codebuddy_settings_files, merge_codebuddy_ide_hooks,
@@ -77,6 +78,10 @@ pub struct Collector {
     pub ide_presence: crate::host_process::HostPresence,
     pub vscode_presence: crate::host_process::HostPresence,
     pub codex_read_state: crate::codex_read_state::ReadStateObserver,
+    pub custom_store: crate::custom::Store,
+    pub custom_engine: crate::custom::Engine,
+    pub custom_diagnostics: std::collections::VecDeque<Value>,
+    pub custom_stats: HashMap<String, (Option<i64>, Option<i64>)>,
 }
 impl Collector {
     pub fn new(home: PathBuf) -> Result<Self, String> {
@@ -102,6 +107,10 @@ impl Collector {
             integrations,
             last_hook_at: HashMap::new(),
             hub: Hub::new(),
+            custom_store: crate::custom::Store::load(&home),
+            custom_engine: Default::default(),
+            custom_diagnostics: Default::default(),
+            custom_stats: HashMap::new(),
             settings,
             home,
             live: HashMap::new(),
@@ -142,6 +151,7 @@ impl Collector {
             }
         }
         self.hub.ready = true;
+        self.poll_custom();
         if self.settings["sources"]["codex"]["enabled"] == true {
             let file = self.paths("codex")[0].join(".codex-global-state.json");
             self.codex_read_state.poll(&file, &mut self.hub, now());
@@ -212,6 +222,10 @@ impl Collector {
                     json!({"ok":!paths.is_empty(),"paths":paths,"detail":if paths.is_empty(){"未找到可读取的数据路径"}else{"路径可读取；会话状态以监听结果为准"}}),
                 )
             }
+            "custom_integrations_get" => Ok(self.custom_status()),
+            "custom_integrations_set" => self.custom_manage(payload),
+            "custom_preview" => Ok(self.custom_preview(payload)),
+            "custom_hook" => Ok(self.ingest_custom_hook(payload)),
             _ => Err("不支持的命令".into()),
         }
     }

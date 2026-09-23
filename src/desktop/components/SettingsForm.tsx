@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { IntegrationManager } from './IntegrationManager.js';
+import { CustomIntegrationManager } from './CustomIntegrationManager.js';
 import { BOT_AVATAR_COUNT, createAvatar } from '../avatar.js';
 import { desktopCommand, isDesktop } from '../host.js';
 import { agents, loadListening, saveListening } from '../listening.js';
@@ -258,6 +259,9 @@ export function SettingsForm() {
             ))}
           </section>
           {ready && <section><IntegrationManager disabled={busy} acquire={acquireIntegration} release={releaseIntegration} /></section>}
+          {/* 入口暂未开放（见文件头说明）：如需临时启用，恢复下面一行。
+          {ready && <section><CustomIntegrationManager disabled={busy} acquire={acquireIntegration} release={releaseIntegration} /></section>}
+          */}
           <section>
             <h2>启动</h2>
             <ToggleRow

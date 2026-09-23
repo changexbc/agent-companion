@@ -155,6 +155,8 @@ export async function hostFetch(url: string, options: {method?: string; headers?
   if (url === '/api/settings') command = options.method === 'PUT' ? 'settings_set' : 'settings_get';
   else if (url === '/api/settings/check') command = 'settings_check';
   else if (url === '/api/integrations') command = options.method === 'POST' ? 'integrations_set' : 'integrations_get';
+  else if (url === '/api/custom-integrations') command = options.method === 'POST' ? 'custom_integrations_set' : 'custom_integrations_get';
+  else if (url === '/api/custom-integrations/preview') command = 'custom_preview';
   else throw new Error('Unsupported desktop request');
   try {
     const value = await desktopCommand('collector_request', { command, payload: options.body ? JSON.parse(options.body) as Settings | IntegrationAction : null });

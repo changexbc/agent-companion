@@ -22,6 +22,7 @@ const readReleased=new Promise(resolve=>{releaseRead=resolve;});
 let held=false;
 // Integration actions have their own dedicated harness; keep this fixture stable.
 await context.route('**/api/integrations', route => route.fulfill({json:{sources:[]}}));
+await context.route('**/api/custom-integrations**', route => route.fulfill({json:{version:1,storage:{ok:true,error:null},binaryInstalled:true,templates:[],diagnostics:[]}}));
 await context.route('**/api/settings', async route => {
   const method=route.request().method();
   calls.push(method);

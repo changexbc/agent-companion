@@ -45,8 +45,9 @@ fn main() {
             Ok(())
         }
         Some("serve") => serve(),
+        Some("custom-hook") => custom_hook(),
         _ => {
-            eprintln!("agent-studio-runtime serve | hook");
+            eprintln!("agent-studio-runtime serve | hook | custom-hook");
             Ok(())
         }
     };
@@ -57,6 +58,37 @@ fn main() {
 }
 fn quote_path(p: &Path) -> String {
     format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"))
+}
+/// One raw hook payload from a user-configured third-party tool. The source is
+/// the `--integration` argument, never the payload, and stdout stays empty so a
+/// host that parses our output cannot mistake it for agent instructions.
+fn custom_hook() -> Result<(), String> {
+    let integration = arg_value("--integration").unwrap_or_default();
+    if !agent_studio_core::custom::is_valid_id(&integration) {
+        return Err("custom-hook 需要 --integration <id>，id 必须匹配 [a-z][a-z0-9-]{0,63}".into());
+    }
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .take(agent_studio_core::custom::limits::PAYLOAD_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > agent_studio_core::custom::limits::PAYLOAD_BYTES {
+        return Err("载荷超过 1 MiB 上限".into());
+    }
+    let raw: Value = serde_json::from_slice(&bytes).map_err(|_| "载荷必须是单个 JSON 值".to_string())?;
+    let outcome = call(
+        &home(),
+        "custom_hook",
+        json!({"integration": integration, "payload": raw}),
+    )?;
+    if outcome["outcome"] == json!("rejected") {
+        return Err(format!(
+            "事件未接收：{}（{}）",
+            text(&outcome["reason"]),
+            text(&outcome["detail"])
+        ));
+    }
+    Ok(())
 }
 fn hook_command(binary: &Path, home: &Path, source: &str, edition: Option<&str>) -> String {
     let mut command = format!(
@@ -144,6 +176,10 @@ fn serve() -> Result<(), String> {
     if lock.try_lock_exclusive().is_err() {
         return Ok(());
     }
+    // Built-in hook install only copies this binary when that agent's config
+    // directory already exists. Custom commands point at the same path, so
+    // publish it on every start or a custom-only setup has nothing to run.
+    let _ = ensure_hook_binary(&home);
     let mut collector = Collector::new(home.clone())?;
     let warning = install_hooks(&collector).err();
     let server = tiny_http::Server::http("127.0.0.1:0").map_err(|e| e.to_string())?;
@@ -360,7 +396,7 @@ fn serve() -> Result<(), String> {
                     Ok(json!(true))
                 }
                 "settings_get" => Ok(settings.clone()),
-                command if matches!(command, "settings_set" | "settings_check" | "integrations_get" | "integrations_set") => {
+                command if matches!(command, "settings_set" | "settings_check" | "integrations_get" | "integrations_set" | "custom_integrations_get" | "custom_integrations_set" | "custom_preview" | "custom_hook") => {
                     let (send, receive) = std::sync::mpsc::channel();
                     jobs.send((command.into(), p.clone(), Some(send)))
                         .map_err(|_| "采集器已退出")?;

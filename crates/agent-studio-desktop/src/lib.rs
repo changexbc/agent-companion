@@ -101,6 +101,7 @@ async fn collector_request(
     if !matches!(
         command.as_str(),
         "settings_get" | "settings_set" | "settings_check" | "integrations_get" | "integrations_set"
+            | "custom_integrations_get" | "custom_integrations_set" | "custom_preview"
     ) {
         return Err("不支持的命令".into());
     }

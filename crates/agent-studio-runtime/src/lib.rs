@@ -99,7 +99,10 @@ pub fn call(home: &Path, command: &str, payload: Value) -> Result<Value, String>
         .ok_or("监听服务端口无效")?;
     let token = info["token"].as_str().ok_or("监听认证信息缺失")?;
     let response: Value = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(if command.starts_with("settings_") || command.starts_with("integrations_") {
+        .timeout(Duration::from_secs(if command.starts_with("settings_")
+            || command.starts_with("integrations_")
+            || command.starts_with("custom_")
+        {
             12
         } else {
             3

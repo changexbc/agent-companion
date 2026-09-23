@@ -5,13 +5,17 @@
  * `crates/agent-studio-desktop/src/{lib,rail_settings,session,hit_test}.rs`.
  * Commands are invoked as `plugin:agent-studio|<name>`.
  */
+import type { CustomAction, CustomIntegrations, CustomPreview, CustomPreviewRequest } from './custom-integrations.js';
 import type { IntegrationAction, Integrations } from './integrations.js';
 import type { RailPreferences, RailPreferencesState, Settings } from './settings.js';
 import type { ConnectionState, Snapshot } from './snapshot.js';
 
 export type DesktopView = 'rail' | 'settings';
 
-export type CollectorRequestCommand = 'settings_get' | 'settings_set' | 'settings_check' | 'integrations_get' | 'integrations_set';
+export type CollectorRequestCommand =
+  | 'settings_get' | 'settings_set' | 'settings_check'
+  | 'integrations_get' | 'integrations_set'
+  | 'custom_integrations_get' | 'custom_integrations_set' | 'custom_preview';
 
 /**
  * A clickable region in logical window points, origin at the window's top-left.
@@ -33,8 +37,8 @@ export interface DesktopCommandMap {
     result: { snapshot: Snapshot | null; connected: boolean };
   };
   collector_request: {
-    args: { command: CollectorRequestCommand; payload: Settings | IntegrationAction | null };
-    result: Settings | Integrations;
+    args: { command: CollectorRequestCommand; payload: Settings | IntegrationAction | CustomAction | CustomPreviewRequest | null };
+    result: Settings | Integrations | CustomIntegrations | CustomPreview;
   };
   set_hit_regions: {
     args: { regions: HitRegion[] };
