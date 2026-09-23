@@ -44,6 +44,7 @@ impl Hub {
             "agentType",
             "externalId",
             "webPort",
+            "hostKind",
         ] {
             if !ev[key].is_null() && !text(&ev[key]).is_empty() {
                 s[key] = if key == "title" {

@@ -75,10 +75,13 @@ function unanswered(v) {
 }
 const stable = v => JSON.stringify(v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(k=>[k,JSON.parse(stable(v[k]))])) : Array.isArray(v) ? v.map(x=>JSON.parse(stable(x))) : v);
 export class CodeBuddyIdePoller {
-  constructor(hub,{home=os.homedir(),dataDir,monitorUrl,hostPresence}={}) { Object.assign(this,{hub,home,dataDir,monitorUrl}); this.live = new Map(); this.hookCount = 0; this.presence = hostPresence || new HostPresence({source:SOURCE}); }
+  constructor(hub,{home=os.homedir(),dataDir,monitorUrl,hostPresence,vscodePresence}={}) { Object.assign(this,{hub,home,dataDir,monitorUrl}); this.live = new Map(); this.hookCount = 0; this.presence = hostPresence || new HostPresence({source:SOURCE}); this.vscodePresence = vscodePresence || new HostPresence({source:'vscode'}); }
   ingestHook(p) {
     const sid=p.session_id,event=p.hook_event_name;
-    if(!sid || !HOOK_EVENTS.includes(event) || !['codebuddyide','codebuddy','vscode'].includes(String(p.client||'').toLowerCase())) return false;
+    const client=String(p.client||'').toLowerCase();
+    if(!sid || !HOOK_EVENTS.includes(event) || !['codebuddyide','codebuddy','vscode'].includes(client)) return false;
+    // The shared settings file serves both hosts; the payload client picks one.
+    const hostKind = client === 'vscode' ? 'vscode' : SOURCE;
     const ts = Number.isInteger(p.timestamp) && p.timestamp > 0 ? p.timestamp : Date.now();
     const state = this.live.get(sid) || {roundId:'',cwd:'',calls:new Map(),seq:0,ended:false,ts:0,agentType:''};
     if(ts < state.ts) return false;
@@ -87,7 +90,7 @@ export class CodeBuddyIdePoller {
     state.cwd = p.cwd || state.cwd; state.ts = ts;
     const agentType = codeBuddyAgentType(p.agent_edition || p.agentEdition || state.agentType);
     state.agentType = agentType;
-    const emit = ev => this.hub.ingest({source:SOURCE,sessionId:sid,roundId:state.roundId,cwd:state.cwd,agentType,ts,...ev});
+    const emit = ev => this.hub.ingest({source:SOURCE,sessionId:sid,roundId:state.roundId,cwd:state.cwd,agentType,hostKind,ts,...ev});
     if(begins || !state.roundId && ['PreToolUse','PostToolUse','PreCompact'].includes(event)) {
       state.roundId = generation || `turn:${ts}`; state.calls.clear(); state.ended=false; emit({type:'start'});
     }
@@ -106,12 +109,20 @@ export class CodeBuddyIdePoller {
     if(event==='Stop' && !state.ended && state.roundId && !state.calls.size) {emit({type:'end',status:'done'});state.ended=true;}
     if(event==='SessionEnd' && !state.ended && state.roundId) {emit({type:'end',status:'aborted'});state.calls.clear();state.ended=true;}
     if(event==='PreCompact' && !state.ended) emit({type:'activity'});
-    this.live.set(sid,state);this.hookCount++;this.presence.noteHook();this.poll();return true;
+    this.live.set(sid,state);this.hookCount++;(hostKind==='vscode'?this.vscodePresence:this.presence).noteHook();this.poll();return true;
   }
   async install(monitorUrl=this.monitorUrl) { return installCodeBuddyIdeHooks(this.home,{dataDir:this.dataDir,monitorUrl}); }
   async poll() {
-    const presence = await this.presence.observe();
-    if(presence==='gone'){endHostSessions(this.hub,SOURCE);this.hub.health(SOURCE,'exited','CodeBuddy IDE 已退出，未完成的任务已标记中止');return;}
-    this.hub.health(SOURCE,'ok',this.hookCount?'已连接 CodeBuddy IDE Hook（不读取会话文件）':'等待新的 CodeBuddy IDE Hook；不恢复历史会话');
+    const ide = await this.presence.observe(), vscode = await this.vscodePresence.observe();
+    const gone = [];
+    if(ide==='gone'){endHostSessions(this.hub,SOURCE,{hostKind:SOURCE});gone.push(SOURCE);}
+    if(vscode==='gone'){endHostSessions(this.hub,SOURCE,{hostKind:'vscode'});gone.push('vscode');}
+    // A live host kind keeps the source connected; a kind that never saw a hook
+    // stays unknown and never becomes an exit.
+    if(gone.length && ide!=='alive' && vscode!=='alive'){
+      this.hub.health(SOURCE,'exited',gone.length===2?'CodeBuddy IDE 与 VS Code 已退出，未完成的任务已标记中止':gone[0]==='vscode'?'VS Code 已退出，未完成的任务已标记中止':'CodeBuddy IDE 已退出，未完成的任务已标记中止');
+      return;
+    }
+    this.hub.health(SOURCE,'ok',this.hookCount?'已连接 CodeBuddy Hook（不读取会话文件）':'等待新的 CodeBuddy Hook；不恢复历史会话');
   }
 }

@@ -8,10 +8,19 @@ use std::time::{Duration, Instant};
 // Helper processes live under Contents/Frameworks, and a crashpad handler can
 // outlive the app (ppid 1). Requiring the bundle-plus-Contents/MacOS shape
 // keeps the probe on the main executable only.
-pub fn host_bundles(source: &str) -> &'static [&'static str] {
-    match source {
+pub fn host_bundles(kind: &str) -> &'static [&'static str] {
+    match kind {
         "workbuddy" => &["WorkBuddy.app", "WorkBuddy AI.app"],
         "codebuddy-ide" => &["CodeBuddy.app", "CodeBuddy CN.app"],
+        // The VS Code family shares the plugin hook payload client=vscode; any
+        // one live member keeps that host kind alive.
+        "vscode" => &[
+            "Visual Studio Code.app",
+            "Code - Insiders.app",
+            "VSCodium.app",
+            "Cursor.app",
+            "Windsurf.app",
+        ],
         _ => &[],
     }
 }
@@ -43,7 +52,7 @@ pub enum Presence {
 }
 
 pub struct HostPresence {
-    source: String,
+    kind: String,
     seen_alive: bool,
     misses: u32,
     cached: Presence,
@@ -55,22 +64,22 @@ pub struct HostPresence {
 }
 
 impl HostPresence {
-    pub fn for_source(source: &str) -> Self {
+    pub fn for_host(kind: &str) -> Self {
         Self::with_runner(
-            source,
+            kind,
             Duration::from_secs(5),
             2,
             Box::new(default_ps),
         )
     }
     pub fn with_runner(
-        source: &str,
+        kind: &str,
         ttl: Duration,
         min_misses: u32,
         runner: Box<dyn Fn() -> Result<String, String> + Send>,
     ) -> Self {
         Self {
-            source: source.into(),
+            kind: kind.into(),
             seen_alive: false,
             misses: 0,
             cached: Presence::Unknown,
@@ -107,7 +116,7 @@ impl HostPresence {
                 return Presence::Unknown;
             }
         };
-        if match_host(&output, host_bundles(&self.source)) {
+        if match_host(&output, host_bundles(&self.kind)) {
             self.seen_alive = true;
             self.misses = 0;
             self.cached = Presence::Alive;
@@ -133,12 +142,14 @@ impl HostPresence {
 // went away, and the front-end shows "已退出" for a short grace then drops it.
 // Hook timestamps may run ahead of the collector clock, so the synthetic end
 // must never look older than the round it closes.
-pub fn end_host_sessions(hub: &mut Hub, source: &str) -> usize {
+pub fn end_host_sessions(hub: &mut Hub, source: &str, host_kind: Option<&str>) -> usize {
     let targets: Vec<(String, String, i64)> = hub
         .sessions
         .values()
         .filter(|s| {
-            text(&s["source"]) == source && !crate::hub::terminal(&text(&s["status"]))
+            text(&s["source"]) == source
+                && !crate::hub::terminal(&text(&s["status"]))
+                && host_kind.map_or(true, |kind| text(&s["hostKind"]) == kind)
         })
         .map(|s| {
             (
@@ -192,6 +203,60 @@ mod tests {
             "/Applications/WorkBuddy.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler\n",
             host_bundles("workbuddy")
         ));
+    }
+
+    #[test]
+    fn vscode_family_bundles_match_main_executables_only() {
+        let bundles = host_bundles("vscode");
+        for line in [
+            "/Applications/Visual Studio Code.app/Contents/MacOS/Electron",
+            "/Applications/Code - Insiders.app/Contents/MacOS/Electron",
+            "/Applications/VSCodium.app/Contents/MacOS/Electron",
+            "/Applications/Cursor.app/Contents/MacOS/Cursor",
+            "/Applications/Windsurf.app/Contents/MacOS/Electron",
+        ] {
+            assert!(match_host(&format!("{line}\n"), bundles), "{line}");
+        }
+        assert!(!match_host(
+            "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Renderer).app/Contents/MacOS/Code Helper (Renderer)\n",
+            bundles
+        ));
+        assert!(!match_host(
+            "/Applications/Visual Studio Code.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler\n",
+            bundles
+        ));
+        // Host kinds never leak into each other.
+        assert!(!match_host(
+            "/Applications/Visual Studio Code.app/Contents/MacOS/Electron\n",
+            host_bundles("codebuddy-ide")
+        ));
+        assert!(!match_host(
+            "/Applications/CodeBuddy.app/Contents/MacOS/CodeBuddy\n",
+            bundles
+        ));
+    }
+
+    #[test]
+    fn host_presences_are_independent_per_kind() {
+        let mut ide = HostPresence::with_runner(
+            "codebuddy-ide",
+            Duration::ZERO,
+            2,
+            Box::new(|| Ok("/sbin/launchd\n".into())),
+        );
+        let mut vscode = HostPresence::with_runner(
+            "vscode",
+            Duration::ZERO,
+            2,
+            Box::new(|| Ok("/Applications/Visual Studio Code.app/Contents/MacOS/Electron\n".into())),
+        );
+        ide.note_hook();
+        vscode.note_hook();
+        assert_eq!(ide.observe(), Presence::Alive);
+        assert_eq!(vscode.observe(), Presence::Alive);
+        assert_eq!(ide.observe(), Presence::Gone);
+        // One kind going away must not change the other's verdict.
+        assert_eq!(vscode.observe(), Presence::Alive);
     }
 
     #[test]
@@ -250,11 +315,25 @@ mod tests {
         hub.ingest(json!({"source":"workbuddy","sessionId":"a","roundId":"r1","type":"start","ts":1}));
         hub.ingest(json!({"source":"workbuddy","sessionId":"b","roundId":"r1","type":"end","status":"done","ts":2}));
         hub.ingest(json!({"source":"codex","sessionId":"c","roundId":"r1","type":"start","ts":3}));
-        assert_eq!(end_host_sessions(&mut hub, "workbuddy"), 1);
+        assert_eq!(end_host_sessions(&mut hub, "workbuddy", None), 1);
         let ended = &hub.sessions["workbuddy:a"];
         assert_eq!(text(&ended["status"]), "aborted");
         assert_eq!(text(&ended["endedBy"]), "host");
         assert_eq!(text(&hub.sessions["workbuddy:b"]["status"]), "done");
         assert_eq!(text(&hub.sessions["codex:c"]["status"]), "running");
+    }
+
+    #[test]
+    fn ends_only_sessions_of_the_named_host_kind() {
+        let mut hub = Hub::new();
+        hub.ingest(json!({"source":"codebuddy-ide","hostKind":"codebuddy-ide","sessionId":"ide","roundId":"r1","type":"start","ts":1}));
+        hub.ingest(json!({"source":"codebuddy-ide","hostKind":"vscode","sessionId":"code","roundId":"r1","type":"start","ts":2}));
+        hub.ingest(json!({"source":"codebuddy-ide","hostKind":"vscode","sessionId":"done","roundId":"r1","type":"end","status":"done","ts":3}));
+        assert_eq!(end_host_sessions(&mut hub, "codebuddy-ide", Some("vscode")), 1);
+        assert_eq!(text(&hub.sessions["codebuddy-ide:code"]["status"]), "aborted");
+        assert_eq!(text(&hub.sessions["codebuddy-ide:ide"]["status"]), "running");
+        assert_eq!(text(&hub.sessions["codebuddy-ide:done"]["status"]), "done");
+        assert_eq!(end_host_sessions(&mut hub, "codebuddy-ide", Some("codebuddy-ide")), 1);
+        assert_eq!(text(&hub.sessions["codebuddy-ide:ide"]["status"]), "aborted");
     }
 }

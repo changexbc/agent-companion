@@ -378,7 +378,7 @@ impl Collector {
 
     pub fn poll_workbuddy(&mut self) -> Result<(), String> {
         if self.workbuddy_presence.observe() == crate::host_process::Presence::Gone {
-            crate::host_process::end_host_sessions(&mut self.hub, "workbuddy");
+            crate::host_process::end_host_sessions(&mut self.hub, "workbuddy", None);
             self.hub.health(
                 "workbuddy",
                 "exited",

@@ -11,6 +11,8 @@ const TERMINAL = new Set(['done', 'error', 'aborted']);
 export const HOST_BUNDLES = {
   workbuddy: ['WorkBuddy.app', 'WorkBuddy AI.app'],
   'codebuddy-ide': ['CodeBuddy.app', 'CodeBuddy CN.app'],
+  // The VS Code plugin emits client=vscode; any live family member counts.
+  vscode: ['Visual Studio Code.app', 'Code - Insiders.app', 'VSCodium.app', 'Cursor.app', 'Windsurf.app'],
 };
 
 export function matchHost(stdout, bundles) {
@@ -27,6 +29,7 @@ export function runPs() {
 }
 
 export class HostPresence {
+  // `source` holds the host kind (workbuddy / codebuddy-ide / vscode).
   constructor({ source, run = runPs, now = Date.now, ttlMs = 5000, minMisses = 2, platform = process.platform } = {}) {
     this.source = source; this.run = run; this.now = now;
     this.ttlMs = ttlMs; this.minMisses = minMisses; this.platform = platform;
@@ -62,8 +65,8 @@ export class HostPresence {
 // went away, and the front-end shows "已退出" for a short grace then drops it.
 // Hook timestamps may run ahead of the collector clock, so the synthetic end
 // must never look older than the round it closes.
-export function endHostSessions(hub, source, ts = Date.now()) {
-  const sessions = [...hub.sessions.values()].filter(s => s.source === source && !TERMINAL.has(s.status));
+export function endHostSessions(hub, source, { hostKind, ts = Date.now() } = {}) {
+  const sessions = [...hub.sessions.values()].filter(s => s.source === source && !TERMINAL.has(s.status) && (!hostKind || s.hostKind === hostKind));
   for (const s of sessions) hub.ingest({ source, sessionId: s.sessionId, roundId: s.roundId, type: 'end', status: 'aborted', endedBy: 'host', ts: Math.max(ts, (s.updatedAt || 0) + 1) });
   return sessions.length;
 }

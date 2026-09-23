@@ -108,17 +108,21 @@ impl Collector {
     pub fn ingest_ide_hook(&mut self, p: &Value) -> bool {
         let sid = text(&p["session_id"]);
         let event = text(&p["hook_event_name"]);
-        // The user settings are shared with CLI. IDE emits client=CodeBuddyIDE.
+        // The user settings are shared with CLI and with the VS Code plugin, so
+        // the payload client decides which host kind the hook belongs to.
+        let client = text(&p["client"]).to_ascii_lowercase();
         if self.settings["sources"]["codebuddy-ide"]["enabled"] != true
-            || !matches!(
-                text(&p["client"]).to_ascii_lowercase().as_str(),
-                "codebuddyide" | "codebuddy" | "vscode"
-            )
+            || !matches!(client.as_str(), "codebuddyide" | "codebuddy" | "vscode")
             || sid.is_empty()
             || !CODEBUDDY_IDE_HOOK_EVENTS.contains(&event.as_str())
         {
             return false;
         }
+        let host_kind = if client == "vscode" {
+            "vscode"
+        } else {
+            "codebuddy-ide"
+        };
         let ts = p["timestamp"]
             .as_i64()
             .filter(|n| *n > 0)
@@ -162,9 +166,9 @@ impl Collector {
             });
             state["calls"] = json!({});
             state["ended"] = json!(false);
-            self.hub.ingest(json!({"source":"codebuddy-ide","sessionId":sid,"type":"start","roundId":state["roundId"],"cwd":state["cwd"],"agentType":agent_type,"ts":ts}));
+            self.hub.ingest(json!({"source":"codebuddy-ide","sessionId":sid,"type":"start","roundId":state["roundId"],"cwd":state["cwd"],"agentType":agent_type,"hostKind":host_kind,"ts":ts}));
         }
-        let base = json!({"source":"codebuddy-ide","sessionId":sid,"roundId":state["roundId"],"cwd":state["cwd"],"agentType":agent_type,"ts":ts});
+        let base = json!({"source":"codebuddy-ide","sessionId":sid,"roundId":state["roundId"],"cwd":state["cwd"],"agentType":agent_type,"hostKind":host_kind,"ts":ts});
         let mut emit = |ev| self.hub.ingest(merge(base.clone(), ev));
         let tool = text(&p["tool_name"]);
         let input = p["tool_input"].clone();
@@ -236,29 +240,47 @@ impl Collector {
         }
         self.ide_live.insert(sid, state);
         self.ide_hook_count += 1;
-        self.ide_presence.note_hook();
+        match host_kind {
+            "vscode" => self.vscode_presence.note_hook(),
+            _ => self.ide_presence.note_hook(),
+        }
         self.poll_ide().ok();
         true
     }
     pub fn poll_ide(&mut self) -> Result<(), String> {
-        if self.ide_presence.observe() == crate::host_process::Presence::Gone {
-            crate::host_process::end_host_sessions(&mut self.hub, "codebuddy-ide");
+        use crate::host_process::{end_host_sessions, Presence};
+        let ide = self.ide_presence.observe();
+        let vscode = self.vscode_presence.observe();
+        let gone_ide = ide == Presence::Gone;
+        let gone_vscode = vscode == Presence::Gone;
+        if gone_ide {
+            end_host_sessions(&mut self.hub, "codebuddy-ide", Some("codebuddy-ide"));
+        }
+        if gone_vscode {
+            end_host_sessions(&mut self.hub, "codebuddy-ide", Some("vscode"));
+        }
+        // A live kind, or a kind that never saw a hook (unknown), must not be
+        // reported as an exit.
+        if !(gone_ide || gone_vscode) || ide == Presence::Alive || vscode == Presence::Alive {
+            self.hub.health("codebuddy-ide", "ok", self.ide_health_detail());
+        } else {
             self.hub.health(
                 "codebuddy-ide",
                 "exited",
-                "CodeBuddy IDE 已退出，未完成的任务已标记中止",
+                match (gone_ide, gone_vscode) {
+                    (true, true) => "CodeBuddy IDE 与 VS Code 已退出，未完成的任务已标记中止",
+                    (true, false) => "CodeBuddy IDE 已退出，未完成的任务已标记中止",
+                    _ => "VS Code 已退出，未完成的任务已标记中止",
+                },
             );
-            return Ok(());
         }
-        self.hub.health(
-            "codebuddy-ide",
-            "ok",
-            if self.ide_hook_count == 0 {
-                "等待新的 CodeBuddy IDE Hook；不恢复历史会话"
-            } else {
-                "已连接 CodeBuddy IDE Hook（不读取会话文件）"
-            },
-        );
         Ok(())
+    }
+    fn ide_health_detail(&self) -> &'static str {
+        if self.ide_hook_count == 0 {
+            "等待新的 CodeBuddy Hook；不恢复历史会话"
+        } else {
+            "已连接 CodeBuddy Hook（不读取会话文件）"
+        }
     }
 }

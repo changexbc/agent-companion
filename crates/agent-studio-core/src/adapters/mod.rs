@@ -75,6 +75,7 @@ pub struct Collector {
     pub workbuddy_hook_count: u64,
     pub workbuddy_presence: crate::host_process::HostPresence,
     pub ide_presence: crate::host_process::HostPresence,
+    pub vscode_presence: crate::host_process::HostPresence,
     pub codex_read_state: crate::codex_read_state::ReadStateObserver,
 }
 impl Collector {
@@ -113,8 +114,9 @@ impl Collector {
             ide_hook_count: 0,
             workbuddy_live: HashMap::new(),
             workbuddy_hook_count: 0,
-            workbuddy_presence: crate::host_process::HostPresence::for_source("workbuddy"),
-            ide_presence: crate::host_process::HostPresence::for_source("codebuddy-ide"),
+            workbuddy_presence: crate::host_process::HostPresence::for_host("workbuddy"),
+            ide_presence: crate::host_process::HostPresence::for_host("codebuddy-ide"),
+            vscode_presence: crate::host_process::HostPresence::for_host("vscode"),
             codex_read_state: Default::default(),
         };
         Ok(c)
@@ -216,10 +218,15 @@ impl Collector {
     pub fn paths(&self, id: &str) -> Vec<PathBuf> {
         settings::paths(&self.home, &self.settings, id)
     }
-    pub fn presence_mut(&mut self, source: &str) -> Option<&mut crate::host_process::HostPresence> {
-        match source {
-            "workbuddy" => Some(&mut self.workbuddy_presence),
-            "codebuddy-ide" => Some(&mut self.ide_presence),
+    pub fn presence_mut(
+        &mut self,
+        source: &str,
+        kind: &str,
+    ) -> Option<&mut crate::host_process::HostPresence> {
+        match (source, kind) {
+            ("workbuddy", _) => Some(&mut self.workbuddy_presence),
+            ("codebuddy-ide", "vscode") => Some(&mut self.vscode_presence),
+            ("codebuddy-ide", _) => Some(&mut self.ide_presence),
             _ => None,
         }
     }

@@ -1,16 +1,28 @@
-use agent_studio_core::{adapters::Collector, atomic_json, hub::Hub, now, settings, tail::Tail};
+use agent_studio_core::{
+    adapters::Collector,
+    atomic_json,
+    host_process::{HostPresence, Presence},
+    hub::Hub,
+    now, settings,
+    tail::Tail,
+};
 use serde_json::json;
 use std::path::PathBuf;
+use std::time::Duration;
 struct Home(PathBuf);
 impl Home {
     fn new() -> Self {
+        // The wall clock alone can repeat inside one process, and a duplicated
+        // home lets one test's Drop delete another test's directory.
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let p = std::env::temp_dir().join(format!(
-            "studio-test-{}-{}",
+            "studio-test-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&p).unwrap();
         Self(p)
@@ -445,21 +457,19 @@ fn internal_codex_tasks_never_reappear_on_late_hooks() {
 
 #[test]
 fn host_exit_marks_unfinished_sessions_aborted_and_recovers() {
-    use agent_studio_core::host_process::HostPresence;
-    use std::time::Duration;
     let home = Home::new();
     let mut c = home.collector("workbuddy");
     c.ingest_workbuddy_hook(&json!({
         "session_id":"s1","hook_event_name":"UserPromptSubmit","prompt":"build","timestamp":now()
     }));
     assert_eq!(c.hub.sessions["workbuddy:s1"]["status"], json!("running"));
-    *c.presence_mut("workbuddy").unwrap() = HostPresence::with_runner(
+    *c.presence_mut("workbuddy", "workbuddy").unwrap() = HostPresence::with_runner(
         "workbuddy",
         Duration::ZERO,
         2,
         Box::new(|| Ok("/sbin/launchd\n".into())),
     );
-    c.presence_mut("workbuddy").unwrap().note_hook();
+    c.presence_mut("workbuddy", "workbuddy").unwrap().note_hook();
     c.poll_workbuddy().unwrap();
     assert_eq!(c.hub.sessions["workbuddy:s1"]["status"], json!("running"));
     c.poll_workbuddy().unwrap();
@@ -472,4 +482,178 @@ fn host_exit_marks_unfinished_sessions_aborted_and_recovers() {
     assert_eq!(c.hub.sources["workbuddy"]["state"], json!("ok"));
     assert_eq!(c.hub.sessions["workbuddy:s1"]["status"], json!("running"));
     assert!(c.hub.sessions["workbuddy:s1"]["endedBy"].is_null());
+}
+
+// The VS Code plugin shares the IDE settings file, so a session belongs to the
+// host kind its hook payload named; each kind is probed and ended on its own.
+const PS_NO_HOST: &str = "/sbin/launchd\n";
+const PS_VSCODE: &str = "/Applications/Visual Studio Code.app/Contents/MacOS/Electron\n";
+const PS_IDE: &str = "/Applications/CodeBuddy.app/Contents/MacOS/CodeBuddy\n";
+
+fn ide_presence(kind: &str, output: &'static str) -> HostPresence {
+    HostPresence::with_runner(kind, Duration::ZERO, 2, Box::new(move || Ok(output.into())))
+}
+
+fn ide_hook(c: &mut Collector, client: &str, sid: &str, ts: i64) {
+    assert!(c.ingest_hook(&json!({
+        "agent_source":"codebuddy-ide","client":client,"session_id":sid,"cwd":"/project",
+        "timestamp":ts,"hook_event_name":"UserPromptSubmit","prompt":"work"
+    })));
+}
+
+#[test]
+fn ide_host_kinds_are_probed_and_ended_independently() {
+    let home = Home::new();
+    let mut c = home.collector("codebuddy-ide");
+    let t = now();
+    ide_hook(&mut c, "CodeBuddyIDE", "ide", t);
+    ide_hook(&mut c, "VSCode", "code", t);
+    assert_eq!(
+        c.hub.sessions["codebuddy-ide:ide"]["hostKind"],
+        json!("codebuddy-ide")
+    );
+    assert_eq!(
+        c.hub.sessions["codebuddy-ide:code"]["hostKind"],
+        json!("vscode")
+    );
+    // Only VS Code is still running.
+    *c.presence_mut("codebuddy-ide", "codebuddy-ide").unwrap() =
+        ide_presence("codebuddy-ide", PS_NO_HOST);
+    *c.presence_mut("codebuddy-ide", "vscode").unwrap() = ide_presence("vscode", PS_VSCODE);
+    for kind in ["codebuddy-ide", "vscode"] {
+        c.presence_mut("codebuddy-ide", kind).unwrap().note_hook();
+    }
+    c.poll_ide().unwrap();
+    assert_eq!(c.hub.sources["codebuddy-ide"]["state"], json!("ok"));
+    c.poll_ide().unwrap();
+    assert_eq!(
+        c.presence_mut("codebuddy-ide", "codebuddy-ide")
+            .unwrap()
+            .observe(),
+        Presence::Gone
+    );
+    assert_eq!(
+        c.presence_mut("codebuddy-ide", "vscode").unwrap().observe(),
+        Presence::Alive
+    );
+    assert_eq!(c.hub.sessions["codebuddy-ide:ide"]["status"], json!("aborted"));
+    assert_eq!(c.hub.sessions["codebuddy-ide:ide"]["endedBy"], json!("host"));
+    assert_eq!(c.hub.sessions["codebuddy-ide:code"]["status"], json!("running"));
+    assert!(c.hub.sessions["codebuddy-ide:code"]["endedBy"].is_null());
+    // A live kind keeps the source connected even while its sibling exited.
+    assert_eq!(c.hub.sources["codebuddy-ide"]["state"], json!("ok"));
+    assert_eq!(
+        c.hub.sources["codebuddy-ide"]["detail"],
+        json!("已连接 CodeBuddy Hook（不读取会话文件）")
+    );
+}
+
+#[test]
+fn ide_exit_names_only_the_exited_kind() {
+    let home = Home::new();
+    let mut c = home.collector("codebuddy-ide");
+    ide_hook(&mut c, "CodeBuddyIDE", "ide", now());
+    *c.presence_mut("codebuddy-ide", "codebuddy-ide").unwrap() =
+        ide_presence("codebuddy-ide", PS_NO_HOST);
+    // The VS Code kind never saw a hook: it must stay unknown and unmentioned.
+    *c.presence_mut("codebuddy-ide", "vscode").unwrap() = ide_presence("vscode", PS_NO_HOST);
+    c.presence_mut("codebuddy-ide", "codebuddy-ide").unwrap().note_hook();
+    c.poll_ide().unwrap();
+    c.poll_ide().unwrap();
+    assert_eq!(c.hub.sessions["codebuddy-ide:ide"]["status"], json!("aborted"));
+    assert_eq!(c.hub.sources["codebuddy-ide"]["state"], json!("exited"));
+    assert_eq!(
+        c.hub.sources["codebuddy-ide"]["detail"],
+        json!("CodeBuddy IDE 已退出，未完成的任务已标记中止")
+    );
+    assert_eq!(
+        c.presence_mut("codebuddy-ide", "vscode").unwrap().observe(),
+        Presence::Unknown
+    );
+}
+
+#[test]
+fn vscode_exit_names_only_the_exited_kind() {
+    let home = Home::new();
+    let mut c = home.collector("codebuddy-ide");
+    ide_hook(&mut c, "VSCode", "code", now());
+    *c.presence_mut("codebuddy-ide", "vscode").unwrap() = ide_presence("vscode", PS_NO_HOST);
+    *c.presence_mut("codebuddy-ide", "codebuddy-ide").unwrap() =
+        ide_presence("codebuddy-ide", PS_NO_HOST);
+    c.presence_mut("codebuddy-ide", "vscode").unwrap().note_hook();
+    c.poll_ide().unwrap();
+    c.poll_ide().unwrap();
+    assert_eq!(c.hub.sessions["codebuddy-ide:code"]["status"], json!("aborted"));
+    assert_eq!(c.hub.sources["codebuddy-ide"]["state"], json!("exited"));
+    assert_eq!(
+        c.hub.sources["codebuddy-ide"]["detail"],
+        json!("VS Code 已退出，未完成的任务已标记中止")
+    );
+    assert_eq!(
+        c.presence_mut("codebuddy-ide", "codebuddy-ide")
+            .unwrap()
+            .observe(),
+        Presence::Unknown
+    );
+}
+
+#[test]
+fn vscode_exit_ends_only_vscode_sessions() {
+    let home = Home::new();
+    let mut c = home.collector("codebuddy-ide");
+    let t = now();
+    ide_hook(&mut c, "CodeBuddyIDE", "ide", t);
+    ide_hook(&mut c, "VSCode", "code", t);
+    *c.presence_mut("codebuddy-ide", "vscode").unwrap() = ide_presence("vscode", PS_NO_HOST);
+    *c.presence_mut("codebuddy-ide", "codebuddy-ide").unwrap() =
+        ide_presence("codebuddy-ide", PS_IDE);
+    for kind in ["codebuddy-ide", "vscode"] {
+        c.presence_mut("codebuddy-ide", kind).unwrap().note_hook();
+    }
+    c.poll_ide().unwrap();
+    c.poll_ide().unwrap();
+    assert_eq!(c.hub.sessions["codebuddy-ide:code"]["status"], json!("aborted"));
+    assert_eq!(c.hub.sessions["codebuddy-ide:code"]["endedBy"], json!("host"));
+    assert_eq!(c.hub.sessions["codebuddy-ide:ide"]["status"], json!("running"));
+    assert!(c.hub.sessions["codebuddy-ide:ide"]["endedBy"].is_null());
+    assert_eq!(c.hub.sources["codebuddy-ide"]["state"], json!("ok"));
+}
+
+#[test]
+fn both_kinds_gone_reports_once_for_both() {
+    let home = Home::new();
+    let mut c = home.collector("codebuddy-ide");
+    let t = now();
+    ide_hook(&mut c, "CodeBuddyIDE", "ide", t);
+    ide_hook(&mut c, "VSCode", "code", t);
+    for kind in ["codebuddy-ide", "vscode"] {
+        *c.presence_mut("codebuddy-ide", kind).unwrap() = ide_presence(kind, PS_NO_HOST);
+        c.presence_mut("codebuddy-ide", kind).unwrap().note_hook();
+    }
+    c.poll_ide().unwrap();
+    c.poll_ide().unwrap();
+    assert_eq!(c.hub.sessions["codebuddy-ide:ide"]["status"], json!("aborted"));
+    assert_eq!(c.hub.sessions["codebuddy-ide:code"]["status"], json!("aborted"));
+    assert_eq!(c.hub.sources["codebuddy-ide"]["state"], json!("exited"));
+    assert_eq!(
+        c.hub.sources["codebuddy-ide"]["detail"],
+        json!("CodeBuddy IDE 与 VS Code 已退出，未完成的任务已标记中止")
+    );
+}
+
+#[test]
+fn unhooked_host_kinds_never_conclude_an_exit() {
+    let home = Home::new();
+    let mut c = home.collector("codebuddy-ide");
+    for kind in ["codebuddy-ide", "vscode"] {
+        *c.presence_mut("codebuddy-ide", kind).unwrap() = ide_presence(kind, PS_NO_HOST);
+    }
+    c.poll_ide().unwrap();
+    c.poll_ide().unwrap();
+    assert_eq!(c.hub.sources["codebuddy-ide"]["state"], json!("ok"));
+    assert_eq!(
+        c.hub.sources["codebuddy-ide"]["detail"],
+        json!("等待新的 CodeBuddy Hook；不恢复历史会话")
+    );
+    assert!(c.hub.sessions.is_empty());
 }

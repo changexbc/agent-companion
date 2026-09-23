@@ -37,6 +37,7 @@ export class Hub {
     if (ev.title) s.title = String(ev.title).slice(0, 240);
     if (ev.folderId != null && ev.folderId !== '') s.folderId = ev.folderId;
     if (ev.agentType) s.agentType = String(ev.agentType);
+    if (ev.hostKind) s.hostKind = String(ev.hostKind);
     if (ev.externalId) s.externalId = String(ev.externalId);
     if (Number.isInteger(ev.webPort) && ev.webPort > 0 && ev.webPort < 65536) s.webPort = ev.webPort;
     if (ev.type === 'meta') { if (ev.roundId && s.roundId.startsWith('observed:')) s.roundId = ev.roundId; return; }

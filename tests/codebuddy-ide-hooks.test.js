@@ -53,7 +53,8 @@ test('IDE installer writes international and domestic editions when both homes e
 test('IDE host exit ends unfinished work but leaves completed rounds alone',async()=>{
  const hub=new Hub();let mode='alive';
  const presence={noteHook(){mode='alive';},async observe(){return mode;}};
- const p=new CodeBuddyIdePoller(hub,{hostPresence:presence}),t=Date.now();let seq=0;
+ const unseen={noteHook(){},async observe(){return 'unknown';}};
+ const p=new CodeBuddyIdePoller(hub,{hostPresence:presence,vscodePresence:unseen}),t=Date.now();let seq=0;
  const hook=(sid,event,extra={})=>p.ingestHook({client:'CodeBuddyIDE',session_id:sid,cwd:'/project',timestamp:t+(++seq),hook_event_name:event,...extra});
  hook('x','UserPromptSubmit',{generation_id:'g',prompt:'work'});
  hook('y','UserPromptSubmit',{generation_id:'g',prompt:'quick'});
@@ -74,4 +75,49 @@ test('IDE host exit ends unfinished work but leaves completed rounds alone',asyn
  assert.equal(hub.sources['codebuddy-ide'].state,'ok');
  assert.equal(hub.sessions.get('codebuddy-ide:x').status,'running');
  assert.equal(hub.sessions.get('codebuddy-ide:x').endedBy,undefined);
+});
+test('VS Code plugin hooks drive their own host kind',async()=>{
+ const hub=new Hub();let ide='alive',vscode='alive';
+ const idePresence={noteHook(){ide='alive';},async observe(){return ide;}};
+ const vscodePresence={noteHook(){vscode='alive';},async observe(){return vscode;}};
+ const p=new CodeBuddyIdePoller(hub,{hostPresence:idePresence,vscodePresence}),t=Date.now();let seq=0;
+ const hook=(client,sid,event,extra={})=>p.ingestHook({client,session_id:sid,cwd:'/project',timestamp:t+(++seq),hook_event_name:event,...extra});
+ assert.equal(hook('VSCode','code','UserPromptSubmit',{generation_id:'g',prompt:'work'}),true);
+ hook('CodeBuddyIDE','ide','UserPromptSubmit',{generation_id:'g',prompt:'work'});
+ assert.equal(hub.sessions.get('codebuddy-ide:code').hostKind,'vscode');
+ assert.equal(hub.sessions.get('codebuddy-ide:ide').hostKind,'codebuddy-ide');
+ ide='gone';
+ await p.poll();
+ assert.equal(hub.sources['codebuddy-ide'].state,'ok');
+ assert.equal(hub.sessions.get('codebuddy-ide:ide').status,'aborted');
+ assert.equal(hub.sessions.get('codebuddy-ide:ide').endedBy,'host');
+ assert.equal(hub.sessions.get('codebuddy-ide:code').status,'running');
+ assert.equal(hub.sessions.get('codebuddy-ide:code').endedBy,undefined);
+ vscode='gone';
+ await p.poll();
+ assert.equal(hub.sources['codebuddy-ide'].state,'exited');
+ assert.equal(hub.sources['codebuddy-ide'].detail,'CodeBuddy IDE 与 VS Code 已退出，未完成的任务已标记中止');
+ assert.equal(hub.sessions.get('codebuddy-ide:code').status,'aborted');
+});
+test('an exited host kind is named while an unseen kind stays unknown',async()=>{
+ const hub=new Hub();
+ const unseen={noteHook(){},async observe(){return 'unknown';}};
+ const gone={noteHook(){},async observe(){return 'gone';}};
+ const p=new CodeBuddyIdePoller(hub,{hostPresence:unseen,vscodePresence:gone}),t=Date.now();
+ p.ingestHook({client:'CodeBuddyIDE',session_id:'ide',cwd:'/project',timestamp:t,hook_event_name:'UserPromptSubmit',generation_id:'g',prompt:'work'});
+ p.ingestHook({client:'VSCode',session_id:'code',cwd:'/project',timestamp:t+1,hook_event_name:'UserPromptSubmit',generation_id:'g',prompt:'work'});
+ await p.poll();
+ assert.equal(hub.sources['codebuddy-ide'].state,'exited');
+ assert.equal(hub.sources['codebuddy-ide'].detail,'VS Code 已退出，未完成的任务已标记中止');
+ assert.equal(hub.sessions.get('codebuddy-ide:code').status,'aborted');
+ assert.equal(hub.sessions.get('codebuddy-ide:ide').status,'running');
+});
+test('an unhooked IDE kind never concludes an exit',async()=>{
+ const hub=new Hub();
+ const unseen={noteHook(){},async observe(){return 'unknown';}};
+ const p=new CodeBuddyIdePoller(hub,{hostPresence:unseen,vscodePresence:unseen});
+ await p.poll();
+ assert.equal(hub.sources['codebuddy-ide'].state,'ok');
+ assert.equal(hub.sources['codebuddy-ide'].detail,'等待新的 CodeBuddy Hook；不恢复历史会话');
+ assert.equal(hub.sessions.size,0);
 });
