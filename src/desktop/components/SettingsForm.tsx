@@ -256,8 +256,8 @@ export function SettingsForm() {
                 />
               </Label>
             ))}
-            {ready && <IntegrationManager disabled={busy} acquire={acquireIntegration} release={releaseIntegration} />}
           </section>
+          {ready && <section><IntegrationManager disabled={busy} acquire={acquireIntegration} release={releaseIntegration} /></section>}
           <section>
             <h2>启动</h2>
             <ToggleRow

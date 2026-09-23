@@ -56,30 +56,38 @@ export function IntegrationManager({disabled, acquire, release}: {
 
   return <div className="integration-manager" aria-label="接入管理" aria-busy={loading || active !== null}>
     <div className="integration-heading">
-      <h3>Hooks 与 Webhook</h3>
+      <h2>Hooks 与 Webhook</h2>
       <Button type="button" variant="outline" disabled={disabled || loading || active !== null} onClick={() => void run()}>刷新状态</Button>
     </div>
-    <p className="section-hint">接入操作立即生效，卸载后不会自动安装。关闭监听会保留 Hooks；Codeg 会注销 Webhook。</p>
+    <p className="section-hint">管理各 Agent 的接入，展开查看详情与操作。</p>
     {loading && <p className="section-hint">正在检查接入状态…</p>}
     {!loading && agents.map(([source, name]) => {
       const item = sources.find(item => item.source === source);
       if (!item) return null;
       const webhook = item.kind === 'webhook';
-      return <div className="integration-item" key={source} data-integration={source}>
-        <div className="integration-title"><strong>{name} <span>{webhook ? 'Webhook' : 'Hooks'}</span></strong><span className="integration-badge" data-state={item.status}>{labels[item.status]}</span></div>
-        <p className="integration-detail">{item.message}</p>
-        <p className="integration-detail">{item.automatic ? '允许自动接入' : '已关闭自动接入'} · {item.lastEventAt ? `最近事件：${new Date(item.lastEventAt).toLocaleString()}` : '尚无事件记录'}</p>
-        {!!item.locations.length && <details><summary>配置位置</summary>{item.locations.map(location => <code key={location}>{location}</code>)}</details>}
-        <div className="integration-actions">
-          <Button type="button" variant="outline" disabled={disabled || active !== null} onClick={() => void run({source, action: 'install'})}>
-            {active === `${source}-install` ? '正在处理…' : webhook ? (item.status === 'installed' ? '重新注册' : '注册 / 重试') : item.status === 'installed' || item.status === 'partial' ? '修复 Hooks' : '安装 Hooks'}
-          </Button>
-          <Button type="button" variant="outline" disabled={disabled || active !== null || (!item.automatic && item.status === 'not_installed')} onClick={() => void run({source, action: 'uninstall'})}>
-            {active === `${source}-uninstall` ? '正在处理…' : webhook ? '注销' : '卸载'}
-          </Button>
+      return <details className="integration-item" key={source} data-integration={source}>
+        <summary className="integration-title">
+          <span className="integration-identity"><img src={`/icons/agents/${source}.png`} alt="" /><span><strong>{name}</strong><small>{webhook ? 'Webhook' : 'Hooks'}</small></span></span>
+          <span className="integration-badge" data-state={item.status}>{labels[item.status]}</span>
+          <span className="integration-chevron" aria-hidden="true" />
+        </summary>
+        <div className="integration-content">
+          <p className="integration-detail">{item.message}</p>
+          <p className="integration-detail">{item.automatic ? '允许自动接入' : '已关闭自动接入'} · {item.lastEventAt ? `最近事件：${new Date(item.lastEventAt).toLocaleString()}` : '尚无事件记录'}</p>
+          {!!item.locations.length && <details className="integration-locations"><summary>配置位置</summary>{item.locations.map(location => <code key={location}>{location}</code>)}</details>}
+          <p className="integration-policy">{webhook ? '关闭监听会注销 Webhook。' : '关闭监听会保留 Hooks。'}卸载后不会自动安装。</p>
+          <div className="integration-actions">
+            <Button type="button" variant="outline" disabled={disabled || active !== null} onClick={() => void run({source, action: 'install'})}>
+              {active === `${source}-install` ? '正在处理…' : webhook ? (item.status === 'installed' ? '重新注册' : '注册 / 重试') : item.status === 'installed' || item.status === 'partial' ? '修复 Hooks' : '安装 Hooks'}
+            </Button>
+            <Button type="button" variant="outline" disabled={disabled || active !== null || (!item.automatic && item.status === 'not_installed')} onClick={() => void run({source, action: 'uninstall'})}>
+              {active === `${source}-uninstall` ? '正在处理…' : webhook ? '注销' : '卸载'}
+            </Button>
+          </div>
         </div>
-      </div>;
+      </details>;
     })}
+    <p className="integration-footnote">接入操作立即生效，无需保存更改。</p>
     <p role="status" className="integration-message">{message}</p>
   </div>;
 }

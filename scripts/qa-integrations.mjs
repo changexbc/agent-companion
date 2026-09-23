@@ -28,6 +28,8 @@ try {
   await page.locator('[data-integration=codex]').waitFor();
   await page.locator('button[data-style=bot]').click();
   const card = page.locator('[data-integration=codex]');
+  assert.equal(await page.locator('.integration-item[open]').count(),0,'details initially collapsed');
+  await card.locator(':scope > summary').click();
   gate = new Promise(resolve => { release = resolve; });
   await card.getByRole('button',{name:'卸载',exact:true}).click();
   assert(await page.locator('[data-action=save]').isDisabled(), 'save serialized with integration mutation');
@@ -50,6 +52,8 @@ try {
   await page.setViewportSize({width:480,height:1800});
   await page.locator('.integration-manager').scrollIntoViewIfNeeded();
   await page.locator('.integration-manager').screenshot({path:'artifacts/ui/integrations.png'});
+  await card.locator(':scope > summary').click();
+  await page.locator('.integration-manager').screenshot({path:'artifacts/ui/integrations-collapsed.png'});
   for (const width of [360,480]) {
     await page.setViewportSize({width,height:760});
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),'no horizontal overflow');
