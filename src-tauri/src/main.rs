@@ -113,6 +113,8 @@ fn main() {
             tauri::RunEvent::ExitRequested {
                 api, code: None, ..
             } => api.prevent_exit(),
+            // macOS 专属 variant，非 macOS 上不存在。
+            #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => {
                 let _ = agent_studio_desktop::open(app, "rail");
             }
