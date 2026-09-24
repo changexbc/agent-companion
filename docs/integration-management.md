@@ -1,8 +1,8 @@
 # 接入管理
 
-设置 → Agent 监听 → Hooks 与 Webhook。
+设置 → Agent「监听与接入」分组。每个 Agent 同行展示接入状态、实时生效的监听开关及独立详情入口；展开详情管理 Hooks / Webhook，接入操作立即生效。
 
-- 安装/修复/卸载（Codeg 注册/重试/注销）立即生效，无需点击「保存更改」。
+- 安装/修复/卸载（Codeg 注册/重试/注销）立即生效，无需手动保存。卸载 Hooks、注销 Webhook 须在确认弹窗中再次确认，取消不会发送请求。
 - 监听开关用于暂停来源并保留 Hooks；Codeg 关闭监听会注销 Webhook，重新启用时仅在允许自动接入的情况下注册。接入管理用于持久化管理事件推送。
 - 卸载会持久化关闭自动接入，重启和保存普通设置不会重新安装。再次安装恢复自动接入。
 - 只清理属于本应用的配置，不恢复整份历史备份、不删除第三方 Hooks / Webhooks。
@@ -12,7 +12,9 @@
 
 ## 验证
 
-`node scripts/qa-integrations.mjs`：浏览器中的状态、卸载/安装、错误重试、与保存串行、未保存设置保留、窄窗口几何。
+`node scripts/qa-integrations.mjs`：浏览器中的状态、卸载/安装、错误重试、与自动保存串行、确认取消/去重/焦点返回、窄窗口几何。
+
+`node scripts/qa-settings-autosave.mjs`：原生桥接模拟下的无启动写入、快速连改、外部偏好合并、失败重试、Codeg 状态刷新、弹窗焦点与 Escape 边界。
 
 `tests/integrations-bridge.test.js`：原生 RPC 映射与错误传播。
 

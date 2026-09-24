@@ -42,7 +42,7 @@ try {
  const preferences=JSON.parse(await fs.readFile(path.join(out,'agent-studio-settings/report.json')));
  assert.equal(rail.avatars,1);assert.equal(rail.wait,1);assert.match(rail.text,/需要你确认/); // Existing native Codex adapter emits a generic question label.
  assert.equal(rail.connection,'connected');assert.equal(preferences.settingsReady,true);
- assert.match(preferences.text,/Hooks 与 Webhook/,'real WebView renders integration management');
+ assert.match(preferences.text,/监听与接入/,'real WebView renders integration management');
  assert.match(preferences.text,/已接入/,'native integration RPC reports installed status while details are collapsed');
  assert(!/接入状态响应无效|不支持的命令|当前运行环境不支持接入管理/.test(preferences.text),'native integration bridge is supported');
  // A blocked rail hides every real element with `visibility:hidden`, which is

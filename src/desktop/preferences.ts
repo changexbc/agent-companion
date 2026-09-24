@@ -30,6 +30,11 @@ export async function savePreferences(value: RailPreferences & {autostart: boole
   return browserFallback(preferences);
 }
 
+/** Merge only edited fields into a fresh read from the shared settings host. */
+export async function savePreferencePatch(patch: Partial<RailPreferences & {autostart: boolean}>): Promise<RailPreferencesState> {
+  return savePreferences({...await loadPreferences(), ...patch});
+}
+
 export function watchPreferences(callback: (state: RailPreferencesState) => void) {
   const release = onRailPreferences(callback);
   const storage = (event: StorageEvent) => { if (event.key === key) loadPreferences().then(callback).catch(() => {}); };

@@ -104,6 +104,10 @@ try {
   await page.locator('button[data-style=bot]').click();
   await page.getByRole('combobox', {name:'默认显示数量'}).click();
   await page.getByRole('option', {name:'5 个',exact:true}).click();
+  settings.scene.speed=9;
+  settings.sources.codex.path='/fresh/path';
+  settings.notifications.sound=true;
+  calls.length=0;
   await codexSwitch.click();
   assert.equal(await codexSwitch.getAttribute('aria-checked'),'false');
   // The row itself is the label, so the gap between the text and the switch toggles too.
@@ -111,16 +115,8 @@ try {
   await page.locator('label.row',{has:animationSwitch}).click({position:{x:200,y:10}});
   assert.equal(await animationSwitch.getAttribute('aria-checked'),'false','clicking the row outside the switch toggles it');
   await animationSwitch.click();
-  assert.equal(await page.locator('#save-status').textContent(),'有未保存的更改');
-  // Another settings host writes while this page is open; saving must not clobber it.
-  settings.scene.speed=9;
-  settings.sources.codex.path='/fresh/path';
-  settings.notifications.sound=true;
-  calls.length=0;
-  // Two submissions in one task must still produce a single write.
-  await page.evaluate(()=>{const form=document.querySelector('form');form.requestSubmit();form.requestSubmit();});
-  await page.waitForFunction(()=>document.querySelector('#save-status').textContent==='已保存');
-  assert.deepEqual(calls,['GET','PUT'],'two submissions in one task still re-read once and write once');
+  await page.waitForFunction(()=>document.querySelector('#save-status').textContent.includes('实时生效'));
+  assert.deepEqual(calls,['GET','PUT'],'listener auto-save reads current source settings and writes once');
   assert.equal(settings.sources.codex.enabled,false);
   assert.equal(settings.scene.speed,9,'the write carries what the save-time read returned, not the page-load copy');
   assert.equal(settings.sources.codex.path,'/fresh/path');
@@ -140,7 +136,7 @@ try {
   // Chromium's sequential-focus starting point somewhere Tab no longer advances
   // from, so this has to run before the click-driven scenarios below.
   const rings=[];
-  for(let i=0;i<12;i++){
+  for(let i=0;i<20;i++){
     await page.keyboard.press('Tab');
     const stop=await page.evaluate(()=>{
       const el=document.activeElement;
@@ -151,7 +147,7 @@ try {
     if(!stop)break;
     rings.push(stop);
   }
-  assert.equal(rings.length,10,'existing controls plus integration refresh are reachable by Tab');
+  assert.equal(rings.length,13,'settings controls, integration refresh and four independent disclosure buttons are reachable by Tab');
   for(const stop of rings)assert.equal(stop.ring,'2px solid rgb(71, 125, 102) @4px',`${stop.tag}[${stop.field}] keeps the pre-migration focus ring`);
   assert.equal(await page.locator('button[data-style=bot]').getAttribute('aria-pressed'),'true');
   assert.equal(await page.locator('[data-field=visibleCount]').innerText(),'5 个');
@@ -160,16 +156,11 @@ try {
   await page.evaluate(()=>window.scrollTo(0,0));
   for (const viewport of [{width:480,height:700},{width:420,height:520}]) {
     await page.setViewportSize(viewport);
-    for (const position of [0,0.5,1]) {
-      const geometry=await page.evaluate(position=>{
-        window.scrollTo(0,(document.documentElement.scrollHeight-innerHeight)*position);
-        const footer=document.querySelector('footer').getBoundingClientRect();
-        const lastRow=document.querySelector('[data-field=autostart]').closest('.row').getBoundingClientRect();
-        return {bottom:footer.bottom,top:footer.top,lastRowBottom:lastRow.bottom,height:innerHeight};
-      },position);
-      assert(Math.abs(geometry.bottom-geometry.height)<1,'save bar stays at viewport bottom throughout scrolling');
-      if(position===1)assert(geometry.lastRowBottom<=geometry.top,'last setting is not covered by the save bar');
-    }
+    assert.equal(await page.locator('footer,[data-action=save],.integration-columns').count(),0,'manual save and redundant captions are gone');
+    assert.equal(await page.locator('.settings-group').count(),3,'display, Agent and startup share bordered groups');
+    await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));
+    const lastBottom=await page.locator('[data-field=autostart]').evaluate(el=>el.getBoundingClientRect().bottom);
+    assert(lastBottom<=viewport.height,'last setting remains reachable');
     await page.screenshot({path:`artifacts/ui/settings-bottom-${viewport.width}.png`});
   }
   await page.setViewportSize({width:480,height:700});
@@ -203,33 +194,40 @@ try {
   // A failed source write must never be reported as a full success.
   failWrites=true;
   await page.locator('[data-field=source-workbuddy]').click();
-  await page.locator('[data-action=save]').click();
-  await page.waitForFunction(()=>/^部分设置可能已保存，请重试：/.test(document.querySelector('#save-status').textContent));
+
+  await page.waitForFunction(()=>/^部分更改可能已生效，请重试：/.test(document.querySelector('#save-status').textContent));
   assert.equal(await fieldsetDisabled(),false,'the form is usable again after a failed save');
   assert.equal(settings.sources.workbuddy.enabled,true,'the rejected write did not reach the server');
   // The real partial case: the source write lands, the preference write does not.
   failWrites=false;
+  await page.locator('[data-action=retry-save]').click();
+  await page.waitForFunction(()=>document.querySelector('#save-status').textContent.includes('实时生效'));
   const storedBefore=await page.evaluate(()=>localStorage.getItem('astra.desktop.preferences.v1'));
   await page.evaluate(()=>{
     const original=Storage.prototype.setItem;
+    window.__restoreStorage=()=>Storage.prototype.setItem=original;
     Storage.prototype.setItem=function(key,value){
       if(key==='astra.desktop.preferences.v1')throw new Error('prefs disk');
       return original.call(this,key,value);
     };
   });
-  await page.locator('[data-field=source-codeg]').click();
   calls.length=0;
-  await page.locator('[data-action=save]').click();
-  await page.waitForFunction(()=>/^部分设置可能已保存，请重试：/.test(document.querySelector('#save-status').textContent));
+  await page.evaluate(()=>{document.querySelector('[data-field=source-codeg]').click();document.querySelector('[data-field=animation]').click();});
+
+  await page.waitForFunction(()=>/^部分更改可能已生效，请重试：/.test(document.querySelector('#save-status').textContent));
   assert.equal(settings.sources.codeg.enabled,false,'the source write really landed, so this is a partial save');
   assert.equal(await page.evaluate(()=>localStorage.getItem('astra.desktop.preferences.v1')),storedBefore,'the preference write really failed');
   assert.deepEqual(calls,['GET','PUT'],'a partial save still re-reads once and writes once');
-  assert.equal(await page.locator('#save-status').textContent(),'部分设置可能已保存，请重试：prefs disk');
+  assert.equal(await page.locator('#save-status').textContent(),'部分更改可能已生效，请重试：prefs disk');
+  await page.evaluate(()=>window.__restoreStorage());
+  await page.locator('[data-action=retry-save]').click();
+  await page.waitForFunction(()=>document.querySelector('#save-status').textContent.includes('实时生效'));
+  assert.deepEqual(calls,['GET','PUT'],'retry does not replay successful source write');
   assert.deepEqual(errors,[]);
   assert(!resources.some(url=>/three|\.glb|\.exr|\/models\//i.test(url)));
   checks.push(
     'empty','running','wait reminder','quiet done','settings persistence',
-    'no retry while a read is in flight','row label toggles the switch','two submits in one task write once',
+    'no retry while a read is in flight','row label toggles the switch','automatic changes persist without submit',
     'save re-reads then writes once','source write failure is not reported as success',
     'partial save is not reported as success','shared schema preserved',
     'focus rings match the pre-migration rule','no 3D resources',

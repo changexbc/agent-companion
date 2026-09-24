@@ -47,7 +47,8 @@ try {
   releaseRead();
   await page.waitForFunction(() => document.querySelector('fieldset')?.disabled === false);
   assert(await page.locator('#settings-loading').isHidden());
-  assert(await page.locator('[data-action=save]').isVisible());
+  assert.equal(await page.locator('[data-action=save]').count(),0);
+  assert.match(await page.locator('#save-status').innerText(),/实时生效/);
   assert.deepEqual(errors, []);
   console.log('PASS: pre-JS skeleton, slow read, failure, retry, success, reduced motion');
 } finally {
