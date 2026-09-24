@@ -23,6 +23,8 @@ pub struct Config {
     pub runtime: PathBuf,
     /// Whether this host owns login-item registration. Embedded hosts set false.
     pub manage_autostart: bool,
+    /// Default on a fresh install. Embedded hosts can opt in only after consent.
+    pub default_enabled: bool,
     pub show_rail: bool,
 }
 struct Service {
@@ -44,13 +46,14 @@ fn enabled_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf,
 pub fn is_enabled<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> bool {
     app.try_state::<Arc<Service>>()
         .map(|s| s.enabled.load(Ordering::Acquire))
-        .unwrap_or_else(|| {
-            enabled_path(app)
-                .ok()
-                .and_then(|p| std::fs::read(p).ok())
-                .and_then(|b| serde_json::from_slice::<bool>(&b).ok())
-                .unwrap_or(true)
-        })
+        .unwrap_or_else(|| read_enabled(app, false))
+}
+fn read_enabled<R: tauri::Runtime>(app: &tauri::AppHandle<R>, default_enabled: bool) -> bool {
+    enabled_path(app)
+        .ok()
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice::<bool>(&b).ok())
+        .unwrap_or(default_enabled)
 }
 /// Called from an async host command, outside Tauri's plugin setup lock.
 pub fn set_enabled(app: &tauri::AppHandle, enabled: bool) -> Result<bool, String> {
@@ -307,7 +310,7 @@ pub fn init(config: Config) -> tauri::plugin::TauriPlugin<tauri::Wry> {
 }
 
 fn start(app: &tauri::AppHandle, config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    let enabled = is_enabled(app);
+    let enabled = read_enabled(app, config.default_enabled);
     let regions: hit_test::Regions = Arc::new(Mutex::new(vec![]));
     app.manage(regions);
     let state = Arc::new(Service {

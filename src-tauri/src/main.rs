@@ -32,6 +32,7 @@ fn main() {
             assets: String::new(),
             runtime,
             manage_autostart: true,
+            default_enabled: true,
             show_rail: true,
         }))
         .setup(|app| {

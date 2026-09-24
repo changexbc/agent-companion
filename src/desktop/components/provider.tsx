@@ -33,7 +33,7 @@ export function ProviderIcons({item, presentation, hostOnly = false}: {item: Rai
   return (
     <>
       {ids.map((id, index) => AGENT_ICON_IDS.includes(id)
-        ? <img key={`${id}:${index}`} src={`/icons/agents/${id}.png`} alt="" data-agent={id} />
+        ? <img key={`${id}:${index}`} src={`${import.meta.env.BASE_URL}icons/agents/${id}.png`} alt="" data-agent={id} />
         : <span key={`${id}:${index}`} className="desktop-provider-fallback">{(info?.label || '?').slice(0, 1).toUpperCase()}</span>)}
     </>
   );

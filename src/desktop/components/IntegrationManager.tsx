@@ -108,7 +108,7 @@ export function IntegrationManager({disabled, acquire, release, enabled, onEnabl
       const status = loading ? '检查中' : readFailed ? '读取失败' : item ? labels[item.status] : '状态未知';
       return <Collapsible open={expanded} onOpenChange={open => setExpandedSource(open ? source : null)} className="integration-item" key={source} data-integration={source} data-expanded={expanded}>
         <div className="integration-title">
-          <span className="integration-identity"><img src={`/icons/agents/${source}.png`} alt="" /><strong>{name}</strong></span>
+          <span className="integration-identity"><img src={`${import.meta.env.BASE_URL}icons/agents/${source}.png`} alt="" /><strong>{name}</strong></span>
           <span className="integration-badge" data-state={readFailed ? 'error' : loading ? 'loading' : item?.status}>{status}</span>
           <Switch data-field={`source-${source}`} aria-label={`监听 ${name}`} checked={enabled[source]} onCheckedChange={checked => onEnabledChange(source, checked)} />
           <CollapsibleTrigger asChild><Button variant="outline" className="integration-disclosure" type="button" aria-label={`${name} 接入详情`}><span className="integration-chevron" aria-hidden="true" /></Button></CollapsibleTrigger>

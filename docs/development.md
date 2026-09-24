@@ -2,6 +2,8 @@
 
 本页记录前端维护约定；安装与运行方式见 [README](../README.md)。
 
+供其他 Tauri 应用打包时，运行 `npm run build:embed`，将完整的 `dist-embed/` 内容复制到宿主资源目录（例如 `dist/companion/`），窗口 URL 使用 `companion/desktop.html` 与 `companion/desktop-settings.html`。此构建使用相对资源基准；独立版继续使用 `npm run build` 输出根路径资源到 `dist/`。宿主应让插件的 `Config.assets` 指向相同目录，并从同一源码修订构建插件与运行时。
+
 ## 前端结构
 
 两个窗口是两个独立的 Vite 入口，各自拥有一个 React root；跨窗口状态继续走原生事件与存储，没有共享的 Context。
@@ -37,4 +39,3 @@
 - `crates/agent-studio-runtime/`：本地共享监控服务及客户端。
 - `crates/agent-studio-desktop/`：Tauri 桌面集成，仅提供会话栏和设置窗口。
 - `src-tauri/`：Agent Companion 独立应用壳。
-

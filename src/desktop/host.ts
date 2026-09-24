@@ -184,7 +184,7 @@ export async function enableNotifications() {
 export async function openDesktopView(view: DesktopView) {
   if (!['rail', 'settings'].includes(view)) throw new Error('未知视图');
   if (isDesktop()) return desktopCommand('open_view', { view });
-  window.open(view === 'rail' ? '/desktop.html' : '/desktop-settings.html', '_blank', 'noopener,noreferrer');
+  window.open(new URL(view === 'rail' ? 'desktop.html' : 'desktop-settings.html', window.location.href), '_blank', 'noopener,noreferrer');
 }
 
 // Event-driven native hover, including while another app owns keyboard focus.
