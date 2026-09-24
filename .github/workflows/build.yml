@@ -1,0 +1,152 @@
+name: Build desktop app
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        default: all
+        options:
+          - all
+          - mac-arm64
+          - mac-x64
+          - win-x64
+          - linux-x64
+
+permissions:
+  contents: read
+
+jobs:
+  select-platforms:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          platforms = [
+              {"name": "mac-arm64", "os": "macos-15", "target": "aarch64-apple-darwin", "bundles": "app"},
+              {"name": "mac-x64", "os": "macos-15-intel", "target": "x86_64-apple-darwin", "bundles": "app"},
+              {"name": "win-x64", "os": "windows-2025", "target": "x86_64-pc-windows-msvc", "bundles": "nsis"},
+              {"name": "linux-x64", "os": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu", "bundles": "deb,appimage"},
+          ]
+          selected = os.environ.get("PLATFORM", "all")
+          if os.environ["EVENT_NAME"] != "workflow_dispatch" or selected == "all":
+              matrix = platforms
+          else:
+              matrix = [platform for platform in platforms if platform["name"] == selected]
+              if not matrix:
+                  raise SystemExit(f"Unknown platform: {selected}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"matrix={json.dumps({'include': matrix})}\n")
+          PY
+
+  build:
+    needs: select-platforms
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select-platforms.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            src-tauri -> target
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Check release version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            node -e 'const fs = require("node:fs"); const expected = process.argv[1]; for (const file of ["package.json", "src-tauri/tauri.conf.json"]) { const actual = JSON.parse(fs.readFileSync(file, "utf8")).version; if (actual !== expected) { console.error(`${file}: expected ${expected}, got ${actual}`); process.exitCode = 1; } }' "${GITHUB_REF_NAME#v}"
+          fi
+
+      - name: Check runner architecture
+        shell: bash
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+        run: |
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          test "$host" = "$EXPECTED_TARGET"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # beforeBuildCommand compiles the native runtime for this runner's host target.
+      - name: Build desktop bundle
+        shell: bash
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: npx tauri build --bundles '${{ matrix.bundles }}'
+
+      - name: Collect installer
+        shell: bash
+        env:
+          PLATFORM_NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          bundle_root='src-tauri/target/release/bundle'
+          mkdir -p dist-bin
+          if [[ "$PLATFORM_NAME" == mac-* ]]; then
+            app_dir="$(find "$bundle_root/macos" -maxdepth 1 -type d -name '*.app' -print)"
+            test "$(find "$bundle_root/macos" -maxdepth 1 -type d -name '*.app' | wc -l | tr -d ' ')" = 1
+            ditto -c -k --sequesterRsrc --keepParent "$app_dir" "dist-bin/Agent-Companion_${PLATFORM_NAME}.zip"
+          elif [[ "$PLATFORM_NAME" == win-* ]]; then
+            installer="$(find "$bundle_root/nsis" -maxdepth 1 -type f -name '*-setup.exe' -print)"
+            test "$(find "$bundle_root/nsis" -maxdepth 1 -type f -name '*-setup.exe' | wc -l | tr -d ' ')" = 1
+            cp "$installer" dist-bin/
+          else
+            deb="$(find "$bundle_root/deb" -maxdepth 1 -type f -name '*.deb' -print)"
+            appimage="$(find "$bundle_root/appimage" -maxdepth 1 -type f -name '*.AppImage' -print)"
+            test "$(find "$bundle_root/deb" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')" = 1
+            test "$(find "$bundle_root/appimage" -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')" = 1
+            cp "$deb" "$appimage" dist-bin/
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist-bin/
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: release-assets/*
+          fail_on_unmatched_files: true
