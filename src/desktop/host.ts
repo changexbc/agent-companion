@@ -5,7 +5,7 @@
  * without a bundler.
  */
 import type {
-  CodexMonitorCloseResult,
+  SessionMonitorCloseResult,
   CollectorRequestCommand,
   DesktopCommand,
   DesktopCommandMap,
@@ -93,12 +93,12 @@ export async function desktopCommand<K extends DesktopCommand>(
   return (await invoke(`plugin:agent-studio|${command}`, rest[0] as Record<string, unknown> | undefined)) as DesktopCommandMap[K]['result'];
 }
 
-/** Ends only the tracked Codex round. The next Hook may create another row. */
-export async function closeCodexMonitoring(sessionId: string, roundId: string): Promise<boolean> {
+/** Ends only the selected session round. The next activity may create another row. */
+export async function closeSessionMonitoring(source: string, sessionId: string, roundId: string): Promise<boolean> {
   if (!isDesktop()) throw new Error('此操作仅在桌面悬浮窗中可用');
   const result = await desktopCommand('collector_request', {
-    command: 'codex_monitor_close', payload: {sessionId, roundId},
-  }) as CodexMonitorCloseResult;
+    command: 'session_monitor_close', payload: {source, sessionId, roundId},
+  }) as SessionMonitorCloseResult;
   return result.closed === true;
 }
 

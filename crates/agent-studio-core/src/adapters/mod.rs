@@ -15,7 +15,7 @@ pub use workbuddy::{
 use crate::{atomic_json, hub::Hub, now, settings, text};
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
 use serde_json::{json, Value};
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::{HashMap, HashSet}, path::PathBuf};
 pub fn query(db: &Connection, sql: &str) -> Result<Vec<Value>, String> {
     let mut st = db
         .prepare(sql)
@@ -74,6 +74,8 @@ pub struct Collector {
     pub ide_hook_count: u64,
     pub workbuddy_live: HashMap<String, Value>,
     pub workbuddy_hook_count: u64,
+    /// Ignore completion events after a user closes a task, until new activity arrives.
+    pub closed_monitor_sessions: HashSet<String>,
     pub workbuddy_presence: crate::host_process::HostPresence,
     pub ide_presence: crate::host_process::HostPresence,
     pub vscode_presence: crate::host_process::HostPresence,
@@ -123,6 +125,7 @@ impl Collector {
             ide_hook_count: 0,
             workbuddy_live: HashMap::new(),
             workbuddy_hook_count: 0,
+            closed_monitor_sessions: HashSet::new(),
             workbuddy_presence: crate::host_process::HostPresence::for_host("workbuddy"),
             ide_presence: crate::host_process::HostPresence::for_host("codebuddy-ide"),
             vscode_presence: crate::host_process::HostPresence::for_host("vscode"),
@@ -170,23 +173,38 @@ impl Collector {
     }
     pub fn request(&mut self, command: &str, payload: &Value) -> Result<Value, String> {
         match command {
-            "codex_monitor_close" => {
-                let sid = payload["sessionId"].as_str().ok_or("无效 Codex 会话 ID")?;
-                let round = payload["roundId"].as_str().ok_or("无效 Codex 轮次 ID")?;
-                let id = format!("codex:{sid}");
+            "session_monitor_close" => {
+                let source = payload["source"].as_str().filter(|s|
+                    settings::SOURCES.contains(s) || crate::custom::parse_source(s).is_some())
+                    .ok_or("无效 Agent 来源")?;
+                let sid = payload["sessionId"].as_str().filter(|s| !s.is_empty()).ok_or("无效会话 ID")?;
+                let round = payload["roundId"].as_str().filter(|s| !s.is_empty()).ok_or("无效轮次 ID")?;
+                let id = format!("{source}:{sid}");
                 if self.hub.sessions.get(&id).is_none_or(|session|
-                    session["source"] != "codex" || session["sessionId"] != sid || session["roundId"] != round)
+                    session["source"] != source || session["sessionId"] != sid || session["roundId"] != round)
                 {
                     return Ok(json!({"closed":false}));
                 }
-                // Commit removal under the same lock used by offline Hooks before
-                // clearing memory. A failed write must leave the avatar intact.
-                if !crate::codex_recovery::remove_round(&self.home, &self.settings, &self.integrations, sid, round)? {
-                    return Ok(json!({"closed":false}));
+                if source == "codex" {
+                    // Commit removal under the same lock used by offline Hooks before
+                    // clearing memory. A failed write must leave the avatar intact.
+                    if !crate::codex_recovery::remove_round(&self.home, &self.settings, &self.integrations, sid, round)? {
+                        return Ok(json!({"closed":false}));
+                    }
+                    self.live.remove(sid);
+                } else if source == "codebuddy-ide" {
+                    self.ide_live.remove(sid);
+                } else if source == "workbuddy" {
+                    self.workbuddy_live.remove(sid);
+                } else if source.starts_with(crate::custom::SOURCE_PREFIX) {
+                    self.custom_engine.forget(&id);
                 }
                 self.hub.sessions.remove(&id);
-                self.live.remove(sid);
                 self.hub.events.retain(|event| event["sessionId"] != id || event["roundId"] != round);
+                if matches!(source, "workbuddy" | "codeg") {
+                    if self.closed_monitor_sessions.len() >= 512 { self.closed_monitor_sessions.clear(); }
+                    self.closed_monitor_sessions.insert(id);
+                }
                 Ok(json!({"closed":true}))
             }
             "settings_get" => Ok(self.settings.clone()),

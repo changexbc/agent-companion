@@ -37,7 +37,7 @@ export function SessionAvatar({item, presentation, avatarStyle, hidden, controll
       onClick={() => controller.clickAvatar(item.id)}
       onContextMenu={event => {
         event.preventDefault();
-        if (item.session.source === 'codex') controller.openContextMenu(item.id, event.clientX, event.clientY);
+        controller.openContextMenu(item.id, event.clientX, event.clientY);
       }}
     >
       <AvatarPortrait style={avatarStyle} slot={item.identity.slot} status={presentation.status} />

@@ -425,6 +425,11 @@ impl Collector {
         if event == "turn_complete" && snap["status"] == "prompting" {
             return true;
         }
+        let key = format!("codeg:{sid}");
+        if self.closed_monitor_sessions.contains(&key) {
+            if matches!(event.as_str(), "turn_complete" | "error") { return true; }
+            self.closed_monitor_sessions.remove(&key);
+        }
         let ts = now();
         self.codeg.sequence += 1;
         let seq = self.codeg.sequence;

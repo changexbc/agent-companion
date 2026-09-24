@@ -751,9 +751,9 @@ fn codex_monitor_close_forgets_only_matching_round_and_next_hook_recreates_it() 
     assert!(collector.ingest_hook(&json!({"session_id":"other","turn_id":"other-round","hook_event_name":"UserPromptSubmit","timestamp":timestamp})));
     assert!(collector.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"PreToolUse","tool_name":"request_user_input","tool_use_id":"ask","timestamp":timestamp+1})));
     assert!(collector.hub.events.iter().any(|event| event["sessionId"] == "codex:tracked"));
-    assert_eq!(collector.request("codex_monitor_close", &json!({"sessionId":"tracked","roundId":"stale"})).unwrap(), json!({"closed":false}));
+    assert_eq!(collector.request("session_monitor_close", &json!({"source":"codex","sessionId":"tracked","roundId":"stale"})).unwrap(), json!({"closed":false}));
     assert_eq!(collector.hub.sessions["codex:tracked"]["roundId"], "one");
-    assert_eq!(collector.request("codex_monitor_close", &json!({"sessionId":"tracked","roundId":"one"})).unwrap(), json!({"closed":true}));
+    assert_eq!(collector.request("session_monitor_close", &json!({"source":"codex","sessionId":"tracked","roundId":"one"})).unwrap(), json!({"closed":true}));
     assert!(!collector.hub.sessions.contains_key("codex:tracked"));
     assert!(!collector.live.contains_key("tracked"));
     assert!(!collector.hub.events.iter().any(|event| event["sessionId"] == "codex:tracked" && event["roundId"] == "one"));
@@ -769,6 +769,47 @@ fn codex_monitor_close_forgets_only_matching_round_and_next_hook_recreates_it() 
 }
 
 #[test]
+fn session_monitor_close_targets_only_selected_source_session_and_round() {
+    let home = Home::new();
+    let mut collector = home.collector("workbuddy");
+    for sid in ["selected", "other"] {
+        assert!(collector.ingest_workbuddy_hook(&json!({
+            "session_id":sid,"hook_event_name":"UserPromptSubmit","turn_id":"round-one"
+        })));
+    }
+    collector.hub.ingest(json!({"source":"codebuddy-ide","sessionId":"selected","type":"start","roundId":"round-one","ts":now()}));
+    assert_eq!(collector.request("session_monitor_close", &json!({"source":"codebuddy-ide","sessionId":"selected","roundId":"wrong"})).unwrap(), json!({"closed":false}));
+    assert_eq!(collector.request("session_monitor_close", &json!({"source":"workbuddy","sessionId":"selected","roundId":"round-one"})).unwrap(), json!({"closed":true}));
+    assert!(!collector.hub.sessions.contains_key("workbuddy:selected"));
+    assert!(!collector.workbuddy_live.contains_key("selected"));
+    assert!(collector.hub.sessions.contains_key("workbuddy:other"));
+    assert!(collector.hub.sessions.contains_key("codebuddy-ide:selected"));
+    assert!(!collector.ingest_workbuddy_hook(&json!({"session_id":"selected","hook_event_name":"Stop","turn_id":"round-one"})));
+    assert!(!collector.hub.sessions.contains_key("workbuddy:selected"));
+    assert!(collector.ingest_workbuddy_hook(&json!({"session_id":"selected","hook_event_name":"UserPromptSubmit","turn_id":"round-two"})));
+    assert_eq!(collector.hub.sessions["workbuddy:selected"]["roundId"], "round-two");
+    assert_eq!(collector.request("session_monitor_close", &json!({"source":"codebuddy-ide","sessionId":"selected","roundId":"round-one"})).unwrap(), json!({"closed":true}));
+    assert!(!collector.hub.sessions.contains_key("codebuddy-ide:selected"));
+}
+
+#[test]
+fn session_monitor_close_handles_codeg_and_custom_without_disabling_sources() {
+    let home = Home::new();
+    let mut collector = home.collector("codeg");
+    collector.hub.ingest(json!({"source":"codeg","sessionId":"one","type":"start","roundId":"r1","ts":now()}));
+    collector.hub.ingest(json!({"source":"codeg","sessionId":"two","type":"start","roundId":"r2","ts":now()}));
+    assert_eq!(collector.request("session_monitor_close", &json!({"source":"codeg","sessionId":"one","roundId":"r1"})).unwrap(), json!({"closed":true}));
+    assert!(!collector.hub.sessions.contains_key("codeg:one"));
+    assert!(collector.hub.sessions.contains_key("codeg:two"));
+    assert_eq!(collector.settings["sources"]["codeg"]["enabled"], true);
+
+    collector.hub.ingest(json!({"source":"custom:sample","sessionId":"one","type":"start","roundId":"r1","ts":now()}));
+    assert_eq!(collector.request("session_monitor_close", &json!({"source":"custom:sample","sessionId":"one","roundId":"r1"})).unwrap(), json!({"closed":true}));
+    assert!(!collector.hub.sessions.contains_key("custom:sample:one"));
+    assert!(collector.request("session_monitor_close", &json!({"source":"custom:INVALID","sessionId":"one","roundId":"r1"})).is_err());
+}
+
+#[test]
 fn codex_monitor_close_error_preserves_memory_and_recovery() {
     let home = Home::new();
     let mut collector = home.collector("codex");
@@ -776,7 +817,7 @@ fn codex_monitor_close_error_preserves_memory_and_recovery() {
     let lock = home.0.join(".agent-studio/codex-recovery-v1.lock");
     std::fs::remove_file(&lock).unwrap();
     std::fs::create_dir(&lock).unwrap();
-    assert!(collector.request("codex_monitor_close", &json!({"sessionId":"tracked","roundId":"one"})).is_err());
+    assert!(collector.request("session_monitor_close", &json!({"source":"codex","sessionId":"tracked","roundId":"one"})).is_err());
     assert!(collector.hub.sessions.contains_key("codex:tracked"));
     assert!(collector.live.contains_key("tracked"));
     std::fs::remove_dir(&lock).unwrap();
@@ -791,7 +832,7 @@ fn codex_monitor_close_forgets_legacy_memory_without_a_recovery_record() {
     assert!(collector.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"UserPromptSubmit","timestamp":timestamp})));
     let store = home.0.join(".agent-studio/codex-recovery-v1.json");
     std::fs::remove_file(&store).unwrap();
-    assert_eq!(collector.request("codex_monitor_close", &json!({"sessionId":"tracked","roundId":"one"})).unwrap(), json!({"closed":true}));
+    assert_eq!(collector.request("session_monitor_close", &json!({"source":"codex","sessionId":"tracked","roundId":"one"})).unwrap(), json!({"closed":true}));
     assert!(!collector.hub.sessions.contains_key("codex:tracked"));
     assert!(!Collector::new(home.0.clone()).unwrap().hub.sessions.contains_key("codex:tracked"));
 }

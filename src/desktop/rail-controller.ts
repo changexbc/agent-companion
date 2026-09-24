@@ -32,7 +32,7 @@ import { permissionReminderKey, prolongedPermissionCheck } from '../monitor/perm
 import { sessionPresentation } from '../monitor/presentation.js';
 import { openSessionLink } from '../monitor/session-link.js';
 import { createSSETransport } from '../monitor/transport.js';
-import { closeCodexMonitoring, isDesktop, onDesktopPointer, onDesktopWindowActive } from './host.js';
+import { closeSessionMonitoring, isDesktop, onDesktopPointer, onDesktopWindowActive } from './host.js';
 import { createRailWelcome, type RailWelcomeState } from './welcome/index.js';
 import { createHitRegions, type HitRegions } from './hit-regions.js';
 import { loadPreferences, watchPreferences } from './preferences.js';
@@ -404,6 +404,7 @@ export function createRailController() {
 
   const unsubscribeWindowActive = onDesktopWindowActive(value => {
     inactive = !value;
+    if (!value && contextMenu && !contextMenu.busy) contextMenu = null;
     applyContainer();
     state = build();
     notify();
@@ -551,7 +552,8 @@ export function createRailController() {
         if (element) resize.observe(element);
       },
       notice(element: HTMLElement | null) { noticeEl = element; hitRegions.register('notice', 'surface', element); },
-      contextMenu(element: HTMLElement | null) { hitRegions.register('context-menu', 'surface', element); },
+      contextBackdrop(element: HTMLElement | null) { hitRegions.register('context-backdrop', 'surface', element); },
+      contextMenu(element: HTMLElement | null) { hitRegions.register('context-menu', 'control', element); },
       welcome(element: SVGSVGElement | null) { welcomeController.attach(element); },
       resting(element: HTMLElement | null) {
         avatarObserver?.unobserve(restingElement?.querySelector('.companion-avatar'));
@@ -582,13 +584,13 @@ export function createRailController() {
     clickAvatar(id: string) { const item = model.items.find(row => row.id === id); if (item) void open(item); },
 
     openContextMenu(id: string, x: number, y: number) {
-      const item = model.items.find(row => row.id === id && row.session.source === 'codex');
+      const item = model.items.find(row => row.id === id);
       if (!item) return;
       hide();
       contextMenu = {
         id, roundId: item.session.roundId,
-        x: Math.max(8, Math.min(x, innerWidth - 158)),
-        y: Math.max(8, Math.min(y, innerHeight - 44)), busy: false,
+        x: Math.max(8, Math.min(x, innerWidth - 102)),
+        y: Math.max(8, Math.min(y, innerHeight - 34)), busy: false,
       };
       publish();
     },
@@ -600,12 +602,12 @@ export function createRailController() {
     async closeMonitoring() {
       const current = contextMenu;
       if (!current || current.busy) return;
-      const item = model.items.find(row => row.id === current.id && row.session.roundId === current.roundId && row.session.source === 'codex');
+      const item = model.items.find(row => row.id === current.id && row.session.roundId === current.roundId);
       if (!item) { contextMenu = null; publish(); return; }
       contextMenu = {...current, busy: true};
       publish();
       try {
-        const closed = await closeCodexMonitoring(item.session.sessionId, current.roundId);
+        const closed = await closeSessionMonitoring(item.session.source, item.session.sessionId, current.roundId);
         if (!closed) throw new Error('这次监听未关闭，请重试');
         model.forgetMonitoring(current.id, current.roundId);
         if (contextMenu?.id === current.id && contextMenu.roundId === current.roundId) contextMenu = null;

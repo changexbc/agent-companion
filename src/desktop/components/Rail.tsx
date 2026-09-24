@@ -116,22 +116,25 @@ export function RailApp({controller, container}: {controller: RailController; co
       )}
 
       {state.contextMenu && (
-        <div
-          className="desktop-context-menu"
-          role="menu"
-          aria-label="Codex 监听操作"
-          style={{left: state.contextMenu.x, top: state.contextMenu.y}}
-          ref={element => controller.attach.contextMenu(element)}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            disabled={state.contextMenu.busy}
-            onClick={() => void controller.closeMonitoring()}
+        <>
+          <div className="desktop-context-backdrop" aria-hidden="true" ref={element => controller.attach.contextBackdrop(element)} />
+          <div
+            className="desktop-context-menu"
+            role="menu"
+            aria-label="任务监听操作"
+            style={{left: state.contextMenu.x, top: state.contextMenu.y}}
+            ref={element => controller.attach.contextMenu(element)}
           >
-            {state.contextMenu.busy ? '正在关闭…' : '关闭本次监听'}
-          </button>
-        </div>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={state.contextMenu.busy}
+              onClick={() => void controller.closeMonitoring()}
+            >
+              {state.contextMenu.busy ? '正在关闭…' : '关闭本次监听'}
+            </button>
+          </div>
+        </>
       )}
 
       {state.notice && (

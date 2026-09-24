@@ -98,6 +98,9 @@ try {
   const codeBuddy={...session,id:'codebuddy-ide:fixture',source:'codebuddy-ide',sessionId:'cb-fixture',hostKind:'vscode',agentType:'codebuddy',project:'vscode-extension',title:'排查 VSCode 插件任务监听失效',status:'running',roundId:'r1',endedAt:undefined,updatedAt:Date.now()};
   await page.evaluate(s=>__snapshot([s]),codeBuddy);
   await page.locator('.desktop-avatar[data-status=running]').waitFor();
+  await page.locator('.desktop-avatar[data-session-id="codebuddy-ide:fixture"]').click({button:'right'});
+  await page.getByRole('menuitem',{name:'关闭本次监听'}).waitFor();
+  await page.keyboard.press('Escape');
   codeBuddy.status='done';codeBuddy.endedAt=Date.now();codeBuddy.updatedAt=Date.now();
   await page.evaluate(s=>__snapshot([s]),codeBuddy);
   await page.locator('.desktop-automatic-card [data-status=done]').waitFor({state:'visible'});
@@ -112,6 +115,11 @@ try {
   ];
   await page.evaluate(s=>__snapshot(s),generatedProjects);
   await page.locator('.desktop-avatar[data-status=running]').first().waitFor();
+  for (const project of generatedProjects) {
+    await page.locator(`.desktop-avatar[data-session-id="${project.id}"]`).click({button:'right'});
+    await page.getByRole('menuitem',{name:'关闭本次监听'}).waitFor();
+    await page.keyboard.press('Escape');
+  }
   for(const project of generatedProjects){project.status='done';project.endedAt=Date.now();project.updatedAt=Date.now();}
   await page.evaluate(s=>__snapshot(s),generatedProjects);
   await page.locator('.desktop-automatic-card').nth(1).waitFor({state:'visible'});

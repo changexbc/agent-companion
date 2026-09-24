@@ -16,10 +16,10 @@ export type CollectorRequestCommand =
   | 'settings_get' | 'settings_set' | 'settings_check'
   | 'integrations_get' | 'integrations_set'
   | 'custom_integrations_get' | 'custom_integrations_set' | 'custom_preview'
-  | 'codex_monitor_close';
+  | 'session_monitor_close';
 
-export interface CodexMonitorCloseRequest { sessionId: string; roundId: string }
-export interface CodexMonitorCloseResult { closed: boolean }
+export interface SessionMonitorCloseRequest { source: string; sessionId: string; roundId: string }
+export interface SessionMonitorCloseResult { closed: boolean }
 
 /**
  * A clickable region in logical window points, origin at the window's top-left.
@@ -41,8 +41,8 @@ export interface DesktopCommandMap {
     result: { snapshot: Snapshot | null; connected: boolean };
   };
   collector_request: {
-    args: { command: CollectorRequestCommand; payload: Settings | IntegrationAction | CustomAction | CustomPreviewRequest | CodexMonitorCloseRequest | null };
-    result: Settings | Integrations | CustomIntegrations | CustomPreview | CodexMonitorCloseResult;
+    args: { command: CollectorRequestCommand; payload: Settings | IntegrationAction | CustomAction | CustomPreviewRequest | SessionMonitorCloseRequest | null };
+    result: Settings | Integrations | CustomIntegrations | CustomPreview | SessionMonitorCloseResult;
   };
   set_hit_regions: {
     args: { regions: HitRegion[] };

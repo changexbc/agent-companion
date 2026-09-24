@@ -203,7 +203,7 @@ fn ingest_hook_durably(collector: &mut Collector, payload: &Value) -> Result<Val
 fn collector_request_command(command: &str) -> bool {
     matches!(command, "settings_set" | "settings_check" | "integrations_get" | "integrations_set"
         | "custom_integrations_get" | "custom_integrations_set" | "custom_preview" | "custom_hook"
-        | "codex_monitor_close")
+        | "session_monitor_close")
 }
 fn serve() -> Result<(), String> {
     let home = home();
@@ -485,7 +485,7 @@ mod recovery_tests {
     use super::*;
     #[test]
     fn manual_close_is_routed_to_the_serialized_collector_queue() {
-        assert!(collector_request_command("codex_monitor_close"));
+        assert!(collector_request_command("session_monitor_close"));
         assert!(!collector_request_command("unknown"));
     }
     #[test]
