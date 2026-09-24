@@ -12,7 +12,7 @@ try {
   const page = await browser.newPage({viewport:{width:480,height:760}});
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  let sources = ['codex','workbuddy','codebuddy-ide','codeg'].map(source => ({source,kind:source === 'codeg' ? 'webhook' : 'hooks',status:'installed',message:'配置已安装，等待事件',locations:['/tmp/test-home/.codex/hooks.json'],automatic:true,lastEventAt:null}));
+  let sources = ['codex','workbuddy','codebuddy-ide','codeg'].map(source => ({source,kind:source === 'codeg' ? 'webhook' : 'hooks',status:'installed',message:'配置已安装，等待事件',locations:source === 'codex' ? ['/tmp/test-home/.codex/hooks.json','/tmp/test-home/project/.codex/hooks.json'] : ['/tmp/test-home/.codex/hooks.json'],automatic:true,lastEventAt:null}));
   let mutations = 0, fail = false, readFail = false;
 
   let settings = defaultSettings();
@@ -42,6 +42,11 @@ try {
   assert.equal(await page.locator('.integration-item[data-expanded=true]').count(),1,'only one detail panel opens');
   await card.locator('.integration-disclosure').click();
   assert.match(await card.innerText(),/尚无事件记录/);
+  assert.equal(await card.locator('.integration-location-row').count(),2,'all locations are visible without another disclosure');
+  assert.equal(await card.getByRole('button',{name:/^打开 .* 所在文件夹$/}).count(),2,'each location has its own open-folder action');
+  assert.equal(await card.locator('.integration-detail').count(),0,'installed state is not repeated inside details');
+  await card.getByRole('button',{name:/^打开 .* 所在文件夹$/}).first().click();
+  await page.getByText(/仅桌面应用支持打开配置文件夹/).waitFor();
   gate = new Promise(resolve => { release = resolve; });
   await card.getByRole('button',{name:'卸载',exact:true}).click();
   assert.equal(mutations,0,'opening confirmation sends no mutation');
@@ -49,7 +54,7 @@ try {
   assert(await dialog.getByRole('button',{name:'取消'}).evaluate(el=>el===document.activeElement),'cancel receives initial focus');
   await page.keyboard.press('Escape');
   await dialog.waitFor({state:'hidden'});
-  assert(await card.getByRole('button',{name:'卸载',exact:true}).evaluate(el=>el===document.activeElement),'Escape restores trigger focus');
+  await page.waitForFunction(() => document.querySelector('[data-integration=codex] .integration-remove') === document.activeElement);
   assert.equal(mutations,0);
   await card.getByRole('button',{name:'卸载',exact:true}).click();
   await dialog.getByRole('button',{name:'取消'}).click();
@@ -99,6 +104,10 @@ try {
   await page.locator('.agent-card').screenshot({path:`${artifacts}/card-collapsed.png`});
   await card.locator('.integration-disclosure').click();
   await page.locator('.agent-card').screenshot({path:`${artifacts}/card-expanded.png`});
+  await page.setViewportSize({width:360,height:1000});
+  await page.locator('.agent-card').screenshot({path:`${artifacts}/card-expanded-360.png`});
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),'two visible paths do not overflow a narrow window');
+  await page.setViewportSize({width:480,height:1000});
   sources = sources.map(item=>item.source==='codebuddy-ide'?{...item,status:'partial',message:'配置不完整，请修复 Hooks。'}:item);
   await page.getByRole('button',{name:'刷新状态'}).click();
   await page.getByText('需要修复',{exact:true}).waitFor();

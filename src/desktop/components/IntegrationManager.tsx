@@ -4,7 +4,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/component
 import { Switch } from '@/components/ui/switch';
 import type { SourceId } from '@/types/settings.js';
 import { Button } from '@/components/ui/button';
-import { requestIntegrations } from '../integrations.js';
+import { openIntegrationFolder, requestIntegrations } from '../integrations.js';
 import { agents } from '../listening.js';
 import { errorMessage } from '@/types/commands.js';
 import type { IntegrationAction, IntegrationStatus } from '@/types/integrations.js';
@@ -26,6 +26,7 @@ export function IntegrationManager({disabled, acquire, release, enabled, onEnabl
   const [active, setActive] = React.useState<string | null>(null);
   const [confirmSource, setConfirmSource] = React.useState<SourceId | null>(null);
   const [message, setMessage] = React.useState('');
+  const [openingLocation, setOpeningLocation] = React.useState<string | null>(null);
   const mounted = React.useRef(false);
   const running = React.useRef(false);
   const requestId = React.useRef(0);
@@ -78,6 +79,19 @@ export function IntegrationManager({disabled, acquire, release, enabled, onEnabl
     }
   }
 
+  async function openFolder(source: SourceId, location: string) {
+    if (openingLocation !== null) return;
+    setOpeningLocation(location);
+    setMessage('');
+    try {
+      await openIntegrationFolder(source, location);
+    } catch (error) {
+      setMessage(`打开配置文件夹失败：${errorMessage(error)}`);
+    } finally {
+      if (mounted.current) setOpeningLocation(null);
+    }
+  }
+
   return <div className="integration-manager agent-card" aria-label="Agent 监听与接入" aria-busy={loading || active !== null}>
     <div className="integration-heading">
       <h2>Agent 监听与接入</h2>
@@ -100,17 +114,22 @@ export function IntegrationManager({disabled, acquire, release, enabled, onEnabl
           <CollapsibleTrigger asChild><Button variant="outline" className="integration-disclosure" type="button" aria-label={`${name} 接入详情`}><span className="integration-chevron" aria-hidden="true" /></Button></CollapsibleTrigger>
         </div>
         <CollapsibleContent className="integration-content">
-          {item ? <>
-            <p className="integration-detail" data-state={item.status}>{item.message}</p>
+          {item ? <div className="integration-detail-panel">
+            {item.status !== 'installed' && <p className="integration-detail" data-state={item.status}>{item.message}</p>}
             <div className="integration-metadata">
               <div className="integration-event"><span>最近事件</span><span>{item.lastEventAt ? <time dateTime={new Date(item.lastEventAt).toISOString()}>{new Date(item.lastEventAt).toLocaleString('zh-CN', {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false})}</time> : '尚无事件记录'}</span></div>
-              {!!item.locations.length && <Collapsible className="integration-locations">
-                <CollapsibleTrigger asChild><Button type="button" variant="outline" className="integration-location-trigger"><span>配置位置</span><span className="integration-location-value">{item.locations.length} 处<span className="integration-location-chevron" aria-hidden="true" /></span></Button></CollapsibleTrigger>
-                <CollapsibleContent className="integration-location-content">{item.locations.map(location => <code key={location}>{location}</code>)}</CollapsibleContent>
-              </Collapsible>}
+              {!!item.locations.length && <div className="integration-locations">
+                <span className="integration-metadata-label">配置位置</span>
+                <ul className="integration-location-list">{item.locations.map(location => <li key={location} className="integration-location-row">
+                  <code title={location}>{location}</code>
+                  <Button type="button" variant="outline" className="integration-open-folder" aria-label={`打开 ${location} 所在文件夹`} title="打开所在文件夹" disabled={disabled || active !== null || openingLocation !== null || readFailed || loading} onClick={() => void openFolder(source, location)}>
+                    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M2.5 6.5V5a1.5 1.5 0 0 1 1.5-1.5h4l1.8 2h6.2A1.5 1.5 0 0 1 17.5 7v9A1.5 1.5 0 0 1 16 17.5H4A1.5 1.5 0 0 1 2.5 16V6.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/><path d="m10.5 13 4-4m-3.2 0h3.2v3.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </Button>
+                </li>)}</ul>
+              </div>}
             </div>
-            <p className="integration-policy">{webhook ? '关闭监听会注销 Webhook。' : '关闭监听会保留 Hooks。'}{item.automatic ? '卸载后不会自动安装。' : '已关闭自动接入。'}</p>
             <div className="integration-detail-footer">
+            <p className="integration-policy">{webhook ? '关闭监听会注销 Webhook。' : '关闭监听会保留 Hooks。'}{item.automatic ? '卸载后不会自动安装。' : '已关闭自动接入。'}</p>
             <div className="integration-actions">
               <Button className="integration-repair" type="button" variant="outline" disabled={disabled || active !== null || loading} onClick={() => void run({source, action: 'install'})}>
                 {active === `${source}-install` ? '正在处理…' : webhook ? (item.status === 'installed' ? '重新注册' : '注册 / 重试') : item.status === 'installed' || item.status === 'partial' ? '修复 Hooks' : '安装 Hooks'}
@@ -133,7 +152,7 @@ export function IntegrationManager({disabled, acquire, release, enabled, onEnabl
               </AlertDialog>
             </div>
             </div>
-          </> : <p className="integration-detail">{loading ? '正在检查接入状态…' : '暂时无法获取接入信息，请刷新重试。监听开关仍可使用。'}</p>}
+          </div> : <p className="integration-detail">{loading ? '正在检查接入状态…' : '暂时无法获取接入信息，请刷新重试。监听开关仍可使用。'}</p>}
         </CollapsibleContent>
       </Collapsible>;
     })}

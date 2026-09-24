@@ -8,6 +8,7 @@ fn main() {
         "close_settings",
         "open_view",
         "open_session_url",
+        "open_integration_folder",
     ])
     .build();
 }

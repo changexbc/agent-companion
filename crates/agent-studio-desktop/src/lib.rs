@@ -1,4 +1,5 @@
 mod hit_test;
+mod integration_folder;
 #[cfg(target_os = "macos")]
 mod background_cursor;
 mod rail_settings;
@@ -248,7 +249,8 @@ pub fn init(config: Config) -> tauri::plugin::TauriPlugin<tauri::Wry> {
             rail_settings::rail_settings_set,
             close_settings,
             open_view,
-            session::open_session_url
+            session::open_session_url,
+            integration_folder::open_integration_folder
         ])
         .setup(move |app, _| {
             // Plugin initialization holds Tauri's plugin store lock. Queue window

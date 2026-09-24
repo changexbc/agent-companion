@@ -12,6 +12,7 @@ Read local sessions, configure monitoring and control Agent Studio windows.
 - `allow-close-settings`
 - `allow-open-view`
 - `allow-open-session-url`
+- `allow-open-integration-folder`
 
 ## Permission Table
 
@@ -96,6 +97,32 @@ Enables the monitor_state command without any pre-configured scope.
 <td>
 
 Denies the monitor_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`agent-studio:allow-open-integration-folder`
+
+</td>
+<td>
+
+Enables the open_integration_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`agent-studio:deny-open-integration-folder`
+
+</td>
+<td>
+
+Denies the open_integration_folder command without any pre-configured scope.
 
 </td>
 </tr>

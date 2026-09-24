@@ -64,6 +64,10 @@ export interface DesktopCommandMap {
     args: { url: string };
     result: null;
   };
+  open_integration_folder: {
+    args: { source: string; location: string };
+    result: null;
+  };
 }
 
 export type DesktopCommand = keyof DesktopCommandMap;

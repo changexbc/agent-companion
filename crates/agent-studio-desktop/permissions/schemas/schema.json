@@ -331,6 +331,18 @@
           "markdownDescription": "Denies the monitor_state command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_integration_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-integration-folder",
+          "markdownDescription": "Enables the open_integration_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_integration_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-integration-folder",
+          "markdownDescription": "Denies the open_integration_folder command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_session_url command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-session-url",
@@ -391,10 +403,10 @@
           "markdownDescription": "Denies the set_hit_regions command without any pre-configured scope."
         },
         {
-          "description": "Read local sessions, configure monitoring and control Agent Studio windows.\n#### This default permission set includes:\n\n- `allow-monitor-state`\n- `allow-rail-settings-get`\n- `allow-rail-settings-set`\n- `allow-collector-request`\n- `allow-set-hit-regions`\n- `allow-close-settings`\n- `allow-open-view`\n- `allow-open-session-url`",
+          "description": "Read local sessions, configure monitoring and control Agent Studio windows.\n#### This default permission set includes:\n\n- `allow-monitor-state`\n- `allow-rail-settings-get`\n- `allow-rail-settings-set`\n- `allow-collector-request`\n- `allow-set-hit-regions`\n- `allow-close-settings`\n- `allow-open-view`\n- `allow-open-session-url`\n- `allow-open-integration-folder`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Read local sessions, configure monitoring and control Agent Studio windows.\n#### This default permission set includes:\n\n- `allow-monitor-state`\n- `allow-rail-settings-get`\n- `allow-rail-settings-set`\n- `allow-collector-request`\n- `allow-set-hit-regions`\n- `allow-close-settings`\n- `allow-open-view`\n- `allow-open-session-url`"
+          "markdownDescription": "Read local sessions, configure monitoring and control Agent Studio windows.\n#### This default permission set includes:\n\n- `allow-monitor-state`\n- `allow-rail-settings-get`\n- `allow-rail-settings-set`\n- `allow-collector-request`\n- `allow-set-hit-regions`\n- `allow-close-settings`\n- `allow-open-view`\n- `allow-open-session-url`\n- `allow-open-integration-folder`"
         }
       ]
     }

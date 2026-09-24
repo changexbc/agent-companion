@@ -1,5 +1,6 @@
-import { hostFetch } from './host.js';
+import { desktopCommand, hostFetch, isDesktop } from './host.js';
 import type { IntegrationAction, IntegrationStatus, Integrations } from '../types/integrations.js';
+import type { SourceId } from '../types/settings.js';
 
 const sourceIds = ['codex', 'workbuddy', 'codebuddy-ide', 'codeg'];
 function isStatus(value: unknown): value is IntegrationStatus {
@@ -24,4 +25,9 @@ export async function requestIntegrations(action?: IntegrationAction): Promise<I
   const result = value as Integrations;
   if (!result.sources.every(isStatus) || new Set(result.sources.map(item => item.source)).size !== result.sources.length) throw Error('接入状态响应无效');
   return result;
+}
+
+export async function openIntegrationFolder(source: SourceId, location: string): Promise<void> {
+  if (!isDesktop()) throw Error('仅桌面应用支持打开配置文件夹');
+  await desktopCommand('open_integration_folder', {source, location});
 }
