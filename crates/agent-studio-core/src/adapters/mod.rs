@@ -103,7 +103,7 @@ impl Collector {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
             Err(e) => return Err(e.to_string()),
         };
-        let c = Self {
+        let mut c = Self {
             integrations,
             last_hook_at: HashMap::new(),
             hub: Hub::new(),
@@ -128,6 +128,7 @@ impl Collector {
             vscode_presence: crate::host_process::HostPresence::for_host("vscode"),
             codex_read_state: Default::default(),
         };
+        c.restore_codex_recovery();
         Ok(c)
     }
     pub fn poll(&mut self) {
@@ -153,14 +154,41 @@ impl Collector {
         self.hub.ready = true;
         self.poll_custom();
         if self.settings["sources"]["codex"]["enabled"] == true {
+            let previous_viewed: HashMap<String, Value> = self.hub.sessions.iter()
+                .filter(|(_, s)| s["source"] == "codex")
+                .map(|(id, s)| (id.clone(), s["viewedRoundId"].clone())).collect();
             let file = self.paths("codex")[0].join(".codex-global-state.json");
             self.codex_read_state.poll(&file, &mut self.hub, now());
+            let changed: Vec<String> = self.hub.sessions.iter()
+                .filter(|(id, s)| s["source"] == "codex" && !s["viewedRoundId"].is_null()
+                    && previous_viewed.get(*id) != Some(&s["viewedRoundId"]))
+                .map(|(_, s)| text(&s["sessionId"])).collect();
+            for sid in changed { self.save_codex_recovery(&sid); }
         } else {
             self.codex_read_state = Default::default();
         }
     }
     pub fn request(&mut self, command: &str, payload: &Value) -> Result<Value, String> {
         match command {
+            "codex_monitor_close" => {
+                let sid = payload["sessionId"].as_str().ok_or("无效 Codex 会话 ID")?;
+                let round = payload["roundId"].as_str().ok_or("无效 Codex 轮次 ID")?;
+                let id = format!("codex:{sid}");
+                if self.hub.sessions.get(&id).is_none_or(|session|
+                    session["source"] != "codex" || session["sessionId"] != sid || session["roundId"] != round)
+                {
+                    return Ok(json!({"closed":false}));
+                }
+                // Commit removal under the same lock used by offline Hooks before
+                // clearing memory. A failed write must leave the avatar intact.
+                if !crate::codex_recovery::remove_round(&self.home, &self.settings, &self.integrations, sid, round)? {
+                    return Ok(json!({"closed":false}));
+                }
+                self.hub.sessions.remove(&id);
+                self.live.remove(sid);
+                self.hub.events.retain(|event| event["sessionId"] != id || event["roundId"] != round);
+                Ok(json!({"closed":true}))
+            }
             "settings_get" => Ok(self.settings.clone()),
             "settings_set" => {
                 let next = settings::validate(payload)?;
@@ -186,6 +214,7 @@ impl Collector {
                         if id == "codex" {
                             self.live.clear();
                             self.codex_read_state = Default::default();
+                            crate::codex_recovery::clear(&self.home);
                         }
                         if id == "codebuddy-ide" {
                             self.ide_live.clear();
@@ -250,11 +279,23 @@ impl Collector {
         next[source] = json!(enabled);
         atomic_json(&self.home.join(".agent-studio/integrations.json"), &next)?;
         self.integrations = next;
+        if source == "codex" && !enabled {
+            crate::codex_recovery::clear(&self.home);
+            self.hub.sessions.retain(|_, s| s["source"] != "codex");
+            self.live.clear();
+        }
         Ok(())
     }
     pub fn ingest_hook(&mut self, p: &Value) -> bool {
         let source = hook_agent(p).to_string();
         if !self.integration_automatic(&source) { return false; }
+        if source == "codex" && matches!(p["hook_event_name"].as_str().or_else(|| p["hookEventName"].as_str()), Some("SessionStart" | "UserPromptSubmit")) {
+            let sid = p["session_id"].as_str().or_else(||p["sessionId"].as_str()).unwrap_or("");
+            if self.is_codeg_child_codex(sid) {
+                self.hub.hide_codeg_child_codex(sid);
+                crate::codex_recovery::remove(&self.home, &self.settings, &self.integrations, sid);
+            }
+        }
         let accepted = match source.as_str() {
             "codebuddy-ide" => self.ingest_ide_hook(p),
             "workbuddy" => self.ingest_workbuddy_hook(p),

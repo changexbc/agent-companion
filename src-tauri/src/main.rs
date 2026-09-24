@@ -2,27 +2,37 @@
 mod icons;
 #[cfg(all(target_os = "macos", feature = "diagnostics"))]
 mod native_qa;
+use std::path::PathBuf;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
 };
+
+fn select_runtime_path(sibling: PathBuf, prepared: PathBuf, debug_build: bool) -> PathBuf {
+    if debug_build && prepared.is_file() {
+        return prepared;
+    }
+    if sibling.is_file() {
+        sibling
+    } else {
+        prepared
+    }
+}
+
 fn main() {
     let suffix = if cfg!(windows) { ".exe" } else { "" };
-    let runtime = std::env::current_exe()
+    let sibling_runtime = std::env::current_exe()
         .unwrap()
         .parent()
         .unwrap()
         .join(format!("agent-studio-runtime{suffix}"));
-    let runtime = if runtime.is_file() {
-        runtime
-    } else {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("binaries")
-            .join(format!(
-                "agent-studio-runtime-{}{suffix}",
-                env!("DESKTOP_TARGET")
-            ))
-    };
+    let prepared_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("binaries")
+        .join(format!(
+            "agent-studio-runtime-{}{suffix}",
+            env!("DESKTOP_TARGET")
+        ));
+    let runtime = select_runtime_path(sibling_runtime, prepared_runtime, cfg!(debug_assertions));
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -74,4 +84,48 @@ fn main() {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_runtime_path;
+    use std::fs;
+
+    #[test]
+    fn debug_prefers_prepared_runtime_and_release_prefers_sibling() {
+        let dir = std::env::temp_dir().join(format!(
+            "agent-companion-runtime-selection-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&dir).unwrap();
+        let sibling = dir.join("sibling");
+        let prepared = dir.join("prepared");
+        fs::write(&sibling, []).unwrap();
+        fs::write(&prepared, []).unwrap();
+
+        assert_eq!(
+            select_runtime_path(sibling.clone(), prepared.clone(), true),
+            prepared
+        );
+        assert_eq!(
+            select_runtime_path(sibling.clone(), prepared.clone(), false),
+            sibling
+        );
+
+        fs::remove_file(&prepared).unwrap();
+        assert_eq!(
+            select_runtime_path(sibling.clone(), prepared.clone(), true),
+            sibling
+        );
+        fs::remove_file(&sibling).unwrap();
+        assert_eq!(
+            select_runtime_path(sibling, prepared.clone(), true),
+            prepared
+        );
+        fs::remove_dir(dir).unwrap();
+    }
 }

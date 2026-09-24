@@ -73,11 +73,13 @@ export interface Session {
   sourceLabel?: string;
   externalId?: string;
   webPort?: number;
-  permissionChecks?: string[];
+  permissionChecks?: {id: string; ts: number}[];
   /** Set when a host process exited; absent after a new round starts. */
   endedBy?: string;
   /** Written by the Codex read-state watcher, not by the hub ingest path. */
   viewedRoundId?: string | null;
+  /** Set only on Codex sessions restored from the native bounded state file. */
+  recovered?: boolean;
 
   // Added by the snapshot projection.
   project: string;
