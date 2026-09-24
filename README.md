@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src-tauri/icons/icon.png" alt="Agent Companion 图标" width="128" />
+  <img src="assets/branding/transparent-source.png" alt="Agent Companion 图标" width="128" />
 </p>
 
 <h1 align="center">Agent Companion</h1>
@@ -30,7 +30,7 @@ macOS 要求 **12 或更高版本**。首次打开遇到系统拦截，请参阅
 ### 开始使用
 
 1. **启动 Agent Companion**：桌面上会出现悬浮栏。
-2. **接入 Agent**：从托盘或悬浮栏右键菜单进入设置，选择需要监听的 Codex、WorkBuddy、CodeBuddy 或 Codeg。接入依赖对应客户端的 Hooks / Webhook。
+2. **接入 Agent**：从托盘进入设置，选择需要监听的 Codex、WorkBuddy、CodeBuddy 或 Codeg。接入依赖对应客户端的 Hooks / Webhook。
 3. **开始任务**：在对应客户端发起或继续会话，收到新的事件后，悬浮栏会显示会话伙伴。
 4. **查看进度**：悬停查看任务信息；需要确认时会显示提示卡，有跳转入口时点击即可返回原会话。
 
@@ -45,7 +45,7 @@ macOS 要求 **12 或更高版本**。首次打开遇到系统拦截，请参阅
 | 提问提醒 | 需要你确认时展示提示卡；可以关闭本轮提示 |
 | 完成提醒 | 任务完成时自动弹出卡片，并在头像上显示完成标记 |
 | 会话跳转 | 有可用跳转链接时，点击头像或卡片回到原会话 |
-| 悬浮交互 | 支持拖动、悬停查看详情、右键菜单，透明区域可点击穿透 |
+| 悬浮交互 | 支持拖动、悬停查看详情；右键 Codex 头像可关闭本次监听，透明区域可点击穿透 |
 | 本机设置 | 按来源开关监听，调整外观与开机启动；通过托盘管理应用 |
 | 原生监控 | Rust 本地服务接收 Hooks / Webhook；打包后的应用无需 Node.js 或 Python |
 
@@ -62,6 +62,8 @@ macOS 要求 **12 或更高版本**。首次打开遇到系统拦截，请参阅
 | Codeg | — | ✅ | ✅ | ✅ | 打开 Codeg 中的指定聊天会话 |
 
 以上状态由 Hook / Webhook 事件更新，悬浮栏不会导入全部历史会话。原生版会恢复此前已跟踪的 Codex 任务，并补齐监听服务关闭期间收到的结束事件；完成任务仍按悬浮栏的保留时间退出。跳转还要求目标客户端已安装且系统能够打开对应链接。CodeBuddy 接入面向 IDE 与 VS Code 插件，不包含独立 CodeBuddy CLI。
+
+**Codex 监听保持轻量：**任务的运行、等待和结束状态只由 Hook 更新，不读取 Codex 的任务数据库、会话文件或 transcript。重启恢复使用 Agent Companion 自己保存的少量已跟踪状态（最多 128 个会话、512 KiB）。如果结束 Hook 完全没有触发或送达，悬浮栏无法可靠判定任务已完成；可右键对应头像选择“关闭本次监听”，下一次收到该任务的活动 Hook 时会重新显示。独立的“已读后收起”功能只在有待处理的已完成任务时检查 Codex 的 `.codex-global-state.json`，最多每分钟一次、文件上限 8 MiB；文件未变化时不读取正文，它不用于判断任务是否结束。
 
 Codeg 内运行的 Codex、Grok 等 Agent 会显示内部 Agent 标识，但接入来源仍是 Codeg，点击进入的是 Codeg 会话。Codeg 接入前需在客户端启用 Web Service；其他来源也需成功安装对应 Hook，仅打开监听开关不会产生会话。
 
