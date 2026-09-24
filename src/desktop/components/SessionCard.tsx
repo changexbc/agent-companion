@@ -23,6 +23,8 @@ export function SessionCard({item, connection, surfaceKey, controller}: {
   const presentation = sessionPresentation(item.session, connection);
   const text = presentation.question || presentation.title;
   const label = providerLabel(item, presentation);
+  // A badge may carry a longer explanation (a delegated child names its parent).
+  const providerHint = presentation.badge?.detail ?? label;
   const project = railProjectLabel(item.session, presentation.provider);
   const slowPermission = prolongedPermissionCheck(item.session);
   const dismissTitle = item.session.status === 'wait' ? '关闭本次待确认提示' : slowPermission ? '关闭本次权限提醒' : '收起已完成任务';
@@ -31,7 +33,7 @@ export function SessionCard({item, connection, surfaceKey, controller}: {
       <div className="desktop-card-head">
         <strong title={project}>{project}</strong>
         <span className="desktop-card-status" data-status={presentation.status}>{presentation.statusLabel}</span>
-        <span className="desktop-provider" title={label} aria-label={label}>
+        <span className="desktop-provider" title={providerHint} aria-label={providerHint}>
           <ProviderIcons item={item} presentation={presentation} />
         </span>
       </div>

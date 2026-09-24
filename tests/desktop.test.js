@@ -193,6 +193,15 @@ test('shared card presentation preserves source-specific navigation and wait pre
   assert.equal(sessionPresentation(session(1, 'running', { source: 'workbuddy' })).url, 'workbuddy://chat/1');
   assert.equal(sessionPresentation(session(1, 'running', { source: 'workbuddy', agentType: 'workbuddy-ai' })).provider, 'WorkBuddy 国际版');
   assert.equal(sessionPresentation(session(1, 'running', { source: 'workbuddy', agentType: 'workbuddy-ai' })).url, 'workbuddy-ai://chat/1');
+  // A delegated Codeg child carries the 子任务 badge with its parent as the detail
+  // the card shows as the provider tooltip, and links to its own conversation.
+  const child = session(1, 'wait', { source: 'codeg', sessionId: '215', agentType: 'code_buddy', subagent: true, parentTitle: 'Build feature', pending: [{ id: 'p1', text: 'Allow shell?', questions: [{ text: 'Allow shell?' }] }] });
+  const childCard = sessionPresentation(child);
+  assert.deepEqual(childCard.badge, { host: 'codeg', id: 'codebuddy-ide', label: '子任务', detail: '父会话：Build feature' });
+  assert.equal(childCard.provider, 'Codeg');
+  assert.equal(childCard.url, 'codeg://session/215');
+  assert.equal(childCard.question, 'Allow shell?');
+  assert.equal(providerLabel({ session: child }, childCard), 'Codeg · 子任务');
 });
 test('the CodeBuddy VS Code plugin is labelled as a VS Code host and opens VS Code', () => {
   const vscode = session(1, 'running', { source: 'codebuddy-ide', agentType: 'codebuddy', hostKind: 'vscode', cwd: '/tmp/demo' });
