@@ -173,6 +173,20 @@ export function SettingsForm() {
           <section aria-labelledby="display">
             <h2 id="display">显示</h2>
             <div className="settings-group">
+            <div className="row">
+              <Label htmlFor="rail-size">
+                <strong>悬浮窗尺寸</strong>
+                <small>头像和提示卡片一起调整</small>
+              </Label>
+              <Select value={values.size} onValueChange={size => edit({size: size as RailPreferencesState['size']})}>
+                <SelectTrigger id="rail-size" data-field="size" aria-label="悬浮窗尺寸"><SelectValue /></SelectTrigger>
+                <SelectContent onEscapeKeyDown={event => event.stopPropagation()}>
+                  <SelectItem value="small">小号</SelectItem>
+                  <SelectItem value="medium">中号</SelectItem>
+                  <SelectItem value="standard">标准</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <ToggleRow
               field="animation"
               title="头像动画"
