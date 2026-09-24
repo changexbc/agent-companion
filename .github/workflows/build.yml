@@ -36,10 +36,10 @@ jobs:
           import os
 
           platforms = [
-              {"name": "mac-arm64", "os": "macos-15", "target": "aarch64-apple-darwin", "bundles": "app"},
-              {"name": "mac-x64", "os": "macos-15-intel", "target": "x86_64-apple-darwin", "bundles": "app"},
-              {"name": "win-x64", "os": "windows-2025", "target": "x86_64-pc-windows-msvc", "bundles": "nsis"},
-              {"name": "linux-x64", "os": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu", "bundles": "deb,appimage"},
+              {"name": "mac-arm64", "os": "macos-15", "target": "aarch64-apple-darwin", "bundles": "app", "update_bundle": "macos"},
+              {"name": "mac-x64", "os": "macos-15-intel", "target": "x86_64-apple-darwin", "bundles": "app", "update_bundle": "macos"},
+              {"name": "win-x64", "os": "windows-2025", "target": "x86_64-pc-windows-msvc", "bundles": "nsis", "update_bundle": "nsis"},
+              {"name": "linux-x64", "os": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu", "bundles": "deb,appimage", "update_bundle": "appimage"},
           ]
           selected = os.environ.get("PLATFORM", "all")
           if os.environ["EVENT_NAME"] != "workflow_dispatch" or selected == "all":
@@ -79,10 +79,17 @@ jobs:
 
       - name: Check release version
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            node -e 'const fs = require("node:fs"); const expected = process.argv[1]; for (const file of ["package.json", "src-tauri/tauri.conf.json"]) { const actual = JSON.parse(fs.readFileSync(file, "utf8")).version; if (actual !== expected) { console.error(`${file}: expected ${expected}, got ${actual}`); process.exitCode = 1; } }' "${GITHUB_REF_NAME#v}"
+            VERSION="${RELEASE_TAG#v}"
+            node -e 'const fs = require("node:fs"); const expected = process.argv[1]; for (const file of ["package.json", "src-tauri/tauri.conf.json"]) { const actual = JSON.parse(fs.readFileSync(file, "utf8")).version; if (actual !== expected) { console.error(`${file}: expected ${expected}, got ${actual}`); process.exitCode = 1; } }' "$VERSION"
+          else
+            VERSION="$(node -p 'require("./package.json").version')"
           fi
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building version $VERSION"
 
       - name: Check runner architecture
         shell: bash
@@ -95,17 +102,34 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # Tag builds must be signed: the updater trust root comes from
+      # `vars.TAURI_UPDATER_PUBKEY` and the private key from a secret. Manual runs
+      # may build plain installers before those exist.
+      - name: Configure updater signing
+        id: updater
+        shell: bash
+        env:
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+        run: node scripts/configure-updater.mjs ${{ github.event_name == 'push' && '--require-signing' || '--optional-signing' }}
+
       # beforeBuildCommand compiles the native runtime for this runner's host target.
       - name: Build desktop bundle
         shell: bash
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build --bundles '${{ matrix.bundles }}'
 
+      # Manual installers that are not updater payloads: the macOS zip, the deb on
+      # Linux and the Windows setup checks. With signing enabled, the updater
+      # payload step below owns the Windows installer and the AppImage, so they are
+      # not copied twice under two names.
       - name: Collect installer
         shell: bash
         env:
           PLATFORM_NAME: ${{ matrix.name }}
+          SIGNING: ${{ steps.updater.outputs.signing }}
         run: |
           set -euo pipefail
           bundle_root='src-tauri/target/release/bundle'
@@ -115,16 +139,33 @@ jobs:
             test "$(find "$bundle_root/macos" -maxdepth 1 -type d -name '*.app' | wc -l | tr -d ' ')" = 1
             ditto -c -k --sequesterRsrc --keepParent "$app_dir" "dist-bin/Agent-Companion_${PLATFORM_NAME}.zip"
           elif [[ "$PLATFORM_NAME" == win-* ]]; then
-            installer="$(find "$bundle_root/nsis" -maxdepth 1 -type f -name '*-setup.exe' -print)"
             test "$(find "$bundle_root/nsis" -maxdepth 1 -type f -name '*-setup.exe' | wc -l | tr -d ' ')" = 1
-            cp "$installer" dist-bin/
+            if [[ "$SIGNING" != enabled ]]; then
+              cp "$(find "$bundle_root/nsis" -maxdepth 1 -type f -name '*-setup.exe' -print)" dist-bin/
+            fi
           else
-            deb="$(find "$bundle_root/deb" -maxdepth 1 -type f -name '*.deb' -print)"
-            appimage="$(find "$bundle_root/appimage" -maxdepth 1 -type f -name '*.AppImage' -print)"
             test "$(find "$bundle_root/deb" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')" = 1
-            test "$(find "$bundle_root/appimage" -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')" = 1
-            cp "$deb" "$appimage" dist-bin/
+            cp "$(find "$bundle_root/deb" -maxdepth 1 -type f -name '*.deb' -print)" dist-bin/
+            if [[ "$SIGNING" != enabled ]]; then
+              test "$(find "$bundle_root/appimage" -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')" = 1
+              cp "$(find "$bundle_root/appimage" -maxdepth 1 -type f -name '*.AppImage' -print)" dist-bin/
+            fi
           fi
+
+      # One signed updater payload per platform, renamed to its release asset name,
+      # plus the platform fragment the release job merges into latest.json.
+      - name: Collect updater payload
+        if: steps.updater.outputs.signing == 'enabled'
+        shell: bash
+        env:
+          PLATFORM_NAME: ${{ matrix.name }}
+          UPDATE_BUNDLE: ${{ matrix.update_bundle }}
+        run: |
+          node scripts/update-manifest.mjs collect \
+            --platform "$PLATFORM_NAME" \
+            --bundle-dir "src-tauri/target/release/bundle/$UPDATE_BUNDLE" \
+            --version "$RELEASE_VERSION" \
+            --out dist-bin
 
       - uses: actions/upload-artifact@v4
         with:
@@ -139,10 +180,22 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
+      # Fails when any platform fragment is missing, its version differs, a URL
+      # leaves this release or a signature is duplicated: an incomplete manifest
+      # must never reach the draft Release.
+      - name: Merge updater manifests
+        shell: bash
+        run: |
+          node scripts/update-manifest.mjs merge --dir release-assets --version "${GITHUB_REF_NAME#v}"
+          rm -f release-assets/update-fragment-*.json
       - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
