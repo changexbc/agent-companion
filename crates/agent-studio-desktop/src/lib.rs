@@ -61,15 +61,19 @@ pub fn set_enabled(app: &tauri::AppHandle, enabled: bool) -> Result<bool, String
         .try_state::<Arc<Service>>()
         .ok_or("Agent Companion 正在初始化，请稍后重试")?;
     let mut client = state.client.lock().map_err(|e| e.to_string())?;
-    if enabled && app.get_webview_window(RAIL).is_none() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        let handle = app.clone();
-        let config = state.config.clone();
-        app.run_on_main_thread(move || {
-            let _ = tx.send(create_rail(&handle, &config).map_err(|e| e.to_string()));
-        })
-        .map_err(|e| e.to_string())?;
-        rx.recv().map_err(|e| e.to_string())??;
+    if enabled && state.config.show_rail {
+        if let Some(rail) = app.get_webview_window(RAIL) {
+            rail.show().map_err(|e| e.to_string())?;
+        } else {
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            let handle = app.clone();
+            let config = state.config.clone();
+            app.run_on_main_thread(move || {
+                let _ = tx.send(create_rail(&handle, &config).map_err(|e| e.to_string()));
+            })
+            .map_err(|e| e.to_string())?;
+            rx.recv().map_err(|e| e.to_string())??;
+        }
     }
     let path = enabled_path(app)?;
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
