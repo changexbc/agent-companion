@@ -52,8 +52,28 @@ jobs:
               output.write(f"matrix={json.dumps({'include': matrix})}\n")
           PY
 
+  # 发布路径上的闸门：检查不过，四平台矩阵与草稿 Release 都不产出。
+  # 与 test.yml 的 web / rust job 等价（单平台求快），命令清单同源于 package.json。
+  quality:
+    name: quality gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Run web checks
+        run: npm run ci:web
+      - name: Run crate tests
+        run: cargo test -p agent-studio-core -p agent-studio-runtime --locked
+
   build:
-    needs: select-platforms
+    needs: [select-platforms, quality]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

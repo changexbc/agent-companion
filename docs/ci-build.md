@@ -13,6 +13,46 @@
 
 每个平台都在本架构 runner 上执行 Tauri 的 `beforeBuildCommand`，编译并嵌入对应架构的 `agent-studio-runtime`。macOS 包当前没有开发者签名和公证；Windows / Linux 的安装与运行尚未验证。Actions 构建成功只表示产物已生成，不代表目标系统上的 Hooks / Webhook、托盘和透明窗口均已通过验收。
 
+## 质量门禁
+
+在此之前测试结果只有开发机知道：`build.yml` 只做打包、不跑任何检查，前端用例与 crate 测试全红也能发出正式 Release。现在分成两道——**信号**（push 后立刻知道坏了）和**闸门**（坏了就发不出去）：
+
+| 位置 | job | 跑什么 | 触发 |
+| --- | --- | --- | --- |
+| `.github/workflows/test.yml` | `web checks` | `npm run ci:web`：typecheck → lint → 全部用例 → `vite build` → bundle 检查 | push `main`、手动 |
+| `.github/workflows/test.yml` | `rust tests (ubuntu-24.04)` / `(windows-latest)` | `cargo test -p agent-studio-core -p agent-studio-runtime --locked` | 同上 |
+| `.github/workflows/test.yml` | `rust/node parity` | `node scripts/qa-rust-parity.mjs`（Rust 与 Node 快照一致性） | 同上 |
+| `.github/workflows/build.yml` | `quality gate` | 同一条 `npm run ci:web` + 同一条 cargo test（单平台求快） | tag push、手动 |
+
+两道刻意分成两条 workflow：`test.yml` 与发布流程完全解耦，`build.yml` 里的 `quality` 是发布路径上的闸门——`build` 矩阵 `needs: [select-platforms, quality]`，`release` 继续只依赖 `build`，所以 `quality` 失败时四平台产物与草稿 Release 都不会产出。GitHub 的 `needs` 不能跨 workflow 指向「另一个 workflow 最近一次成功」，要复用只能上 `workflow_call`（把触发条件耦合起来）或 `workflow_run`（结果订阅，易漏），所以闸门在发布路径上重复跑一遍检查，换来「谁挡住了发布」一眼可见、可单独重跑。
+
+web 侧的命令清单只有一份来源：`package.json` 的 `ci:web` script，两条 workflow 都调用它，避免两份 YAML 各写一遍 `typecheck && lint && ...` 后慢慢漂移。Rust 侧那条命令在两个 workflow 里各写一次，接受这点重复——为包一层 npm script 而给三个 Rust job 都装 Node 不划算。
+
+两个刻意的偏离：
+
+- **不放 macOS**：这两个 crate 的平台分支只有 `#[cfg(unix)]` 与 `#[cfg(windows)]` 两种，macOS 与 ubuntu 落在同一分支、不带来额外覆盖，而 macOS runner 按 10× 计费且开发机就是 macOS。测试矩阵因而只有 ubuntu + windows。
+- **不装 webkit 等系统依赖**：`agent-studio-core` / `agent-studio-runtime` 零 tauri 依赖。`agent-studio-desktop`、`src-tauri` 的测试与需要 `tauri build` 的原生 QA 仍留在本地。
+
+测试 runner 与打包 runner 不完全同一批（打包用 `macos-15` / `macos-15-intel` / `windows-2025` / `ubuntu-24.04`），测试通过不等于打包环境通过，两者别混为一谈。
+
+### 本地复跑
+
+```sh
+npm run ci:web                                                    # 与 web checks / quality gate 完全同一组命令
+cargo test -p agent-studio-core -p agent-studio-runtime --locked   # 与 rust tests / quality gate 同一条
+node scripts/qa-rust-parity.mjs                                   # rust/node parity
+```
+
+### 额度
+
+私有 Free 每月 2000 分钟，ubuntu 按 1× 计费、Windows 2×、macOS 10×。本方案每次 push 约 13 计费分钟（ubuntu ~7 + windows ~6），约合每月 150 次 push；若把 macOS 加进矩阵会变成每次约 43 分钟、每月只剩 40 多次——这是 `rust` 矩阵只有两个平台、以及手动验证时优先选 `platform=linux-x64` 的直接原因。转公开后标准 runner 免费，这个约束消失。
+
+### 转公开后的三件后续
+
+1. `test.yml` 增加 `pull_request` 触发：私有阶段没有协作者，PR 触发只是白烧额度。
+2. 评估把 `macos-14` 加回 `rust` 矩阵：只有出现 macOS 专属分支（如 `#[cfg(target_os = "macos")]`）或打包环境相关改动时才值得。
+3. 把发布路径的 `quality gate`（或 `web checks` / `rust tests`）配成 required status check。**现在配不了**：`changexbc/agent-companion` 是 GitHub Free 私有仓库，实测 `branches/main/protection` 与 `rulesets` 都返回 403（`Upgrade to GitHub Pro or make this repository public`）。本轮交付的是「拦住发布」，「拦住推送」要等转公开。
+
 ## 更新签名密钥
 
 应用内更新只信任**构建时**写入的 minisign 公钥，签名私钥只存在于 CI 机密与你自己备份的离线副本中，绝不进入仓库、日志或产物。
