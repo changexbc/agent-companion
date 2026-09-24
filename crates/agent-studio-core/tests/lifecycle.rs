@@ -1,13 +1,15 @@
 use agent_studio_core::{
     adapters::Collector,
     atomic_json,
-    host_process::{HostPresence, Presence},
     hub::Hub,
     now, settings,
     tail::Tail,
 };
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use agent_studio_core::host_process::{HostPresence, Presence};
 use serde_json::json;
 use std::path::PathBuf;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::time::Duration;
 struct Home(PathBuf);
 impl Home {
@@ -913,6 +915,9 @@ fn internal_codex_tasks_never_reappear_on_late_hooks() {
     assert!(c.hub.sessions.contains_key("codex:user"));
 }
 
+// 这批集成用例验证的是「宿主进程消失 → 会话被标记 aborted」，判定依赖外部 ps，只在 macOS/Linux 上启用；
+// 不支持的平台上 observe() 恒为 Unknown，没有可断言的行为，故整组只在支持探测的平台上运行。
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn host_exit_marks_unfinished_sessions_aborted_and_recovers() {
     let home = Home::new();
@@ -944,14 +949,19 @@ fn host_exit_marks_unfinished_sessions_aborted_and_recovers() {
 
 // The VS Code plugin shares the IDE settings file, so a session belongs to the
 // host kind its hook payload named; each kind is probed and ended on its own.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const PS_NO_HOST: &str = "/sbin/launchd\n";
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const PS_VSCODE: &str = "/Applications/Visual Studio Code.app/Contents/MacOS/Electron\n";
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const PS_IDE: &str = "/Applications/CodeBuddy.app/Contents/MacOS/CodeBuddy\n";
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn ide_presence(kind: &str, output: &'static str) -> HostPresence {
     HostPresence::with_runner(kind, Duration::ZERO, 2, Box::new(move || Ok(output.into())))
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn ide_hook(c: &mut Collector, client: &str, sid: &str, ts: i64) {
     assert!(c.ingest_hook(&json!({
         "agent_source":"codebuddy-ide","client":client,"session_id":sid,"cwd":"/project",
@@ -959,6 +969,7 @@ fn ide_hook(c: &mut Collector, client: &str, sid: &str, ts: i64) {
     })));
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn ide_host_kinds_are_probed_and_ended_independently() {
     let home = Home::new();
@@ -1006,6 +1017,7 @@ fn ide_host_kinds_are_probed_and_ended_independently() {
     );
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn ide_exit_names_only_the_exited_kind() {
     let home = Home::new();
@@ -1030,6 +1042,7 @@ fn ide_exit_names_only_the_exited_kind() {
     );
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn vscode_exit_names_only_the_exited_kind() {
     let home = Home::new();
@@ -1055,6 +1068,7 @@ fn vscode_exit_names_only_the_exited_kind() {
     );
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn vscode_exit_ends_only_vscode_sessions() {
     let home = Home::new();
@@ -1077,6 +1091,7 @@ fn vscode_exit_ends_only_vscode_sessions() {
     assert_eq!(c.hub.sources["codebuddy-ide"]["state"], json!("ok"));
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn both_kinds_gone_reports_once_for_both() {
     let home = Home::new();
@@ -1099,6 +1114,7 @@ fn both_kinds_gone_reports_once_for_both() {
     );
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn unhooked_host_kinds_never_conclude_an_exit() {
     let home = Home::new();
