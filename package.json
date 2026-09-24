@@ -14,7 +14,7 @@
     "desktop:prepare": "node scripts/prepare-desktop.mjs",
     "desktop:web": "vite --host 127.0.0.1 --port 4189 --strictPort",
     "desktop:dev": "npm run desktop:prepare && tauri dev",
-    "desktop:build": "tauri build --bundles app",
+    "desktop:build": "tauri build --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'",
     "test:rust": "cargo test --workspace --locked && node scripts/qa-rust-parity.mjs",
     "test:runtime": "npm run desktop:prepare && node scripts/qa-native-runtime.mjs",
     "test:bundle": "node scripts/check-bundle.mjs",

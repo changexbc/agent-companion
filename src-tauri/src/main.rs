@@ -2,10 +2,12 @@
 mod icons;
 #[cfg(all(target_os = "macos", feature = "diagnostics"))]
 mod native_qa;
-use std::path::PathBuf;
+mod update_service;
+use std::{path::PathBuf, sync::Arc};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
+    Listener, Manager,
 };
 
 fn select_runtime_path(sibling: PathBuf, prepared: PathBuf, debug_build: bool) -> PathBuf {
@@ -35,6 +37,7 @@ fn main() {
     let runtime = select_runtime_path(sibling_runtime, prepared_runtime, cfg!(debug_assertions));
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             let _ = agent_studio_desktop::open(app, "rail");
         }))
@@ -53,8 +56,28 @@ fn main() {
             }
             let rail = MenuItem::with_id(app, "rail", "显示 / 隐藏会话栏", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
+            // Updates belong to the standalone host, so they live on this tray menu
+            // rather than in the shared plugin. The label tracks the native snapshot.
+            let service = Arc::new(update_service::UpdateService::default());
+            let update = MenuItem::with_id(
+                app,
+                "update",
+                update_service::tray_label(&service.current()).0,
+                true,
+                None::<&str>,
+            )?;
+            app.manage(service);
+            let update_item = update.clone();
+            app.listen(update_service::STATE_EVENT, move |event| {
+                let Ok(snapshot) = serde_json::from_str::<update_service::UpdateSnapshot>(event.payload()) else {
+                    return;
+                };
+                let (label, enabled) = update_service::tray_label(&snapshot);
+                let _ = update_item.set_text(label);
+                let _ = update_item.set_enabled(enabled);
+            });
             let quit = MenuItem::with_id(app, "quit", "退出 Agent Companion", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&rail, &settings, &quit])?;
+            let menu = Menu::with_items(app, &[&rail, &settings, &update, &quit])?;
             TrayIconBuilder::with_id("agent-companion")
                 .icon(icons::tray_icon())
                 .icon_as_template(cfg!(target_os = "macos"))
@@ -65,14 +88,25 @@ fn main() {
                     "settings" => {
                         let _ = agent_studio_desktop::open(app, "settings");
                     }
+                    "update" => update_service::tray_activate(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
                 .build(app)?;
+            update_service::spawn_periodic_check(app.handle().clone());
             #[cfg(all(target_os = "macos", feature = "diagnostics"))]
             native_qa::schedule(app.handle());
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            update_service::update_config_get,
+            update_service::update_config_set,
+            update_service::update_state,
+            update_service::update_check,
+            update_service::update_download,
+            update_service::update_install,
+            update_service::update_open_release
+        ])
         .build(tauri::generate_context!())
         .expect("Unable to start Agent Companion")
         .run(|app, event| match event {
