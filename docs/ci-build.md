@@ -20,13 +20,13 @@
 | 位置 | job | 跑什么 | 触发 |
 | --- | --- | --- | --- |
 | `.github/workflows/test.yml` | `web checks` | `npm run ci:web`：typecheck → lint → 全部用例 → `vite build` → bundle 检查 | push `main`、手动 |
-| `.github/workflows/test.yml` | `rust tests (ubuntu-24.04)` / `(windows-latest)` | `cargo test -p agent-studio-core -p agent-studio-runtime --locked` | 同上 |
+| `.github/workflows/test.yml` | `rust tests (ubuntu-24.04)`、`rust tests (windows-latest)` | `cargo test -p agent-studio-core -p agent-studio-runtime --locked` | 同上 |
 | `.github/workflows/test.yml` | `rust/node parity` | `node scripts/qa-rust-parity.mjs`（Rust 与 Node 快照一致性） | 同上 |
-| `.github/workflows/build.yml` | `quality gate` | 同一条 `npm run ci:web` + 同一条 cargo test（单平台求快） | tag push、手动 |
+| `.github/workflows/build.yml` | `quality gate` | 同一条 `npm run ci:web` + 同一条 cargo test（单平台求快） | `v*` 标签、手动 |
 
 两道刻意分成两条 workflow：`test.yml` 与发布流程完全解耦，`build.yml` 里的 `quality` 是发布路径上的闸门——`build` 矩阵 `needs: [select-platforms, quality]`，`release` 继续只依赖 `build`，所以 `quality` 失败时四平台产物与草稿 Release 都不会产出。GitHub 的 `needs` 不能跨 workflow 指向「另一个 workflow 最近一次成功」，要复用只能上 `workflow_call`（把触发条件耦合起来）或 `workflow_run`（结果订阅，易漏），所以闸门在发布路径上重复跑一遍检查，换来「谁挡住了发布」一眼可见、可单独重跑。
 
-web 侧的命令清单只有一份来源：`package.json` 的 `ci:web` script，两条 workflow 都调用它，避免两份 YAML 各写一遍 `typecheck && lint && ...` 后慢慢漂移。Rust 侧那条命令在两个 workflow 里各写一次，接受这点重复——为包一层 npm script 而给三个 Rust job 都装 Node 不划算。
+web 侧的命令清单只有一份来源：`package.json` 的 `ci:web` script，两条 workflow 都调用它，避免两份 YAML 各写一遍 `typecheck && lint && ...` 后慢慢漂移。Rust 侧那条 `cargo test` 在 `test.yml` 的 `rust` job 与 `build.yml` 的 `quality` job 里各写一次，接受这点重复——包成 npm script 的话，`rust` 矩阵的 ubuntu 与 windows 两个 job（现在不装 Node）都得再装 Node，不划算。
 
 两个刻意的偏离：
 
@@ -38,9 +38,9 @@ web 侧的命令清单只有一份来源：`package.json` 的 `ci:web` script，
 ### 本地复跑
 
 ```sh
-npm run ci:web                                                    # 与 web checks / quality gate 完全同一组命令
-cargo test -p agent-studio-core -p agent-studio-runtime --locked   # 与 rust tests / quality gate 同一条
-node scripts/qa-rust-parity.mjs                                   # rust/node parity
+npm run ci:web                                                    # 与 web checks 同一组命令；quality gate 的前半段
+cargo test -p agent-studio-core -p agent-studio-runtime --locked   # 与 rust tests、以及 quality gate 的 crate 测试同一条
+node scripts/qa-rust-parity.mjs                                   # 只对应 rust/node parity，不在 quality gate 里
 ```
 
 ### 额度
@@ -51,7 +51,7 @@ node scripts/qa-rust-parity.mjs                                   # rust/node pa
 
 1. `test.yml` 增加 `pull_request` 触发：私有阶段没有协作者，PR 触发只是白烧额度。
 2. 评估把 `macos-14` 加回 `rust` 矩阵：只有出现 macOS 专属分支（如 `#[cfg(target_os = "macos")]`）或打包环境相关改动时才值得。
-3. 把发布路径的 `quality gate`（或 `web checks` / `rust tests`）配成 required status check。**现在配不了**：`changexbc/agent-companion` 是 GitHub Free 私有仓库，实测 `branches/main/protection` 与 `rulesets` 都返回 403（`Upgrade to GitHub Pro or make this repository public`）。本轮交付的是「拦住发布」，「拦住推送」要等转公开。
+3. 把 job 的显示名（`name`，不是 YAML 里的 job id）配成 required status check。发布路径用 `quality gate`。推送路径用 `web checks`、`rust tests (ubuntu-24.04)`、`rust tests (windows-latest)`，若也要卡住快照漂移再加 `rust/node parity`。矩阵展开后的检查名带操作系统，写成 `rust tests` 匹配不到；第一次运行后以分支保护列表里出现的字符串为准。**现在配不了**：`changexbc/agent-companion` 是 GitHub Free 私有仓库，实测 `branches/main/protection` 与 `rulesets` 都返回 403（`Upgrade to GitHub Pro or make this repository public`）。本轮交付的是「拦住发布」，「拦住推送」要等转公开。
 
 ## 更新签名密钥
 
