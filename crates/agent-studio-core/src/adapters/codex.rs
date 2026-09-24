@@ -99,11 +99,6 @@ impl Collector {
         match event.as_str() {
             "UserPromptSubmit" => {
                 // Prompt text is a hook-provided label, not the database conversation title.
-                for (call, c) in state["calls"].as_object().unwrap() {
-                    if c["async"] == true {
-                        emit(json!({"type":"resolve","callId":call}));
-                    }
-                }
                 let title = content(&p["prompt"]);
                 if !title.trim().is_empty() {
                     emit(json!({"type":"meta","title":title}));
@@ -112,7 +107,8 @@ impl Collector {
             "PreToolUse" => {
                 if !id.is_empty() && state["calls"][&id]["resolved"] != true {
                     state["calls"][&id] = json!({"tool":tool,"command":command,"resolved":false,"async":tool.ends_with("request_user_input_async"),"ts":ts});
-                    if question_tool(&tool) {
+                    // Optional async questions do not block the Codex turn.
+                    if question_tool(&tool) && !tool.ends_with("request_user_input_async") {
                         emit(json!({"type":"wait","callId":id,"tool":tool,"text":"需要你确认"}));
                     } else {
                         emit(json!({"type":"step","eventId":id,"label":tool}));
@@ -157,8 +153,8 @@ impl Collector {
                     let is_async = state["calls"][&id]["async"] == true
                         || tool.ends_with("request_user_input_async");
                     state["calls"][&id] = json!({"tool":tool,"command":command,"resolved":true,"async":is_async,"ts":ts});
-                    // An async question returns before the user answers; retain until
-                    // a user prompt, turn end, or interruption. Errors never create a wait.
+                    // Async questions never create waits, so their completion must
+                    // not resolve any pending synchronous question.
                     if !is_async {
                         emit(json!({"type":"resolve","callId":id}));
                     }
@@ -186,7 +182,7 @@ impl Collector {
             _ => {}
         }
         // Bound per-round callback bookkeeping while keeping recent completions
-        // so delayed async PreToolUse callbacks cannot resurrect a finished wait.
+        // so delayed PreToolUse callbacks cannot resurrect a finished wait.
         while state["calls"].as_object().unwrap().len() > 256 {
             let oldest = state["calls"]
                 .as_object()

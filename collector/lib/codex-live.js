@@ -108,9 +108,9 @@ export class CodexLivePoller {
     const emit = ev => this.hub.ingest({source:'codex',sessionId:h.sessionId,cwd:state.cwd,roundId:round,ts:h.ts,...ev});
     if (!prev || begins) emit({type:'start'});
     const command = h.input.command == null ? null : createHash('sha256').update(JSON.stringify(h.input.command)).digest('hex');
-    const isQuestion = /(?:^|__|\.)(request_user_input(?:_async)?|AskUserQuestion|ask_user_question|RequestUserInput)$/.test(h.tool);
+    // Only synchronous questions block the turn; async prompts are ordinary steps.
+    const isQuestion = /(?:^|__|\.)(request_user_input|AskUserQuestion|ask_user_question|RequestUserInput)$/.test(h.tool);
     if (h.event === 'UserPromptSubmit') {
-      for (const [call,c] of state.calls) if(c.async) emit({type:'resolve',callId:call});
       if(h.prompt) emit({type:'meta',title:h.prompt.slice(0,240)});
     }
     if (h.event === 'PreToolUse' && h.callId && !state.calls.get(h.callId)?.resolved) {

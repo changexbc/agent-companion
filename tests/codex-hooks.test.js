@@ -45,3 +45,31 @@ test('permission checks are neutral, silent, and do not hide a real question', a
  hook('PermissionRequest',{tool_name:'Bash',tool_use_id:'b'});
  hook('Stop');assert.equal(session.permissionChecks.length,0);
 });
+
+test('optional async questions never notify or clear an existing synchronous wait', async()=>{
+ const {createNotificationTracker}=await import('../src/monitor/model.js');
+ const hub=new Hub();hub.ready=true;
+ const tracker=createNotificationTracker();tracker.ingest(hub.snapshot());
+ const poller=new CodexLivePoller(hub,{home:'/unused'});
+ let ts=Date.now();const hook=(event,tool='',id='')=>poller.ingestHook({session_id:'x',turn_id:'r',hook_event_name:event,tool_name:tool,tool_use_id:id,timestamp:++ts});
+ hook('UserPromptSubmit');
+ for(const name of ['request_user_input_async','functions.request_user_input_async','mcp__codex__request_user_input_async']) {
+  for(const event of ['PreToolUse','PostToolUse','PreToolUse']) {
+   hook(event,name,name);
+   assert.equal(hub.sessions.get('codex:x').status,'running');
+   assert.deepEqual(hub.sessions.get('codex:x').pending,[]);
+   assert.deepEqual(tracker.ingest(hub.snapshot()),[]);
+   assert.deepEqual(hub.snapshot().events,[]);
+  }
+ }
+ hook('PreToolUse','functions.request_user_input','sync');
+ assert.equal(tracker.ingest(hub.snapshot()).filter(e=>e.kind==='wait').length,1);
+ for(const event of ['PreToolUse','PostToolUse','PreToolUse']) {
+  hook(event,'functions.request_user_input_async','parallel');
+  assert.equal(hub.sessions.get('codex:x').status,'wait');
+  assert.deepEqual(hub.sessions.get('codex:x').pending.map(p=>p.id),['sync']);
+  assert.deepEqual(tracker.ingest(hub.snapshot()),[]);
+ }
+ hook('PostToolUse','functions.request_user_input','sync');
+ assert.equal(hub.sessions.get('codex:x').status,'running');
+});

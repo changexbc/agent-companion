@@ -923,3 +923,35 @@ fn unhooked_host_kinds_never_conclude_an_exit() {
     );
     assert!(c.hub.sessions.is_empty());
 }
+
+#[test]
+fn codex_async_questions_never_notify_or_clear_synchronous_waits() {
+    let home = Home::new();
+    let mut c = home.collector("codex");
+    let mut ts = now();
+    let mut hook = |c: &mut Collector, event: &str, tool: &str, id: &str| {
+        ts += 1;
+        c.ingest_hook(&json!({"session_id":"x","turn_id":"r","hook_event_name":event,"tool_name":tool,"tool_use_id":id,"timestamp":ts}));
+    };
+    hook(&mut c, "UserPromptSubmit", "", "");
+    for tool in ["request_user_input_async", "functions.request_user_input_async", "mcp__codex__request_user_input_async"] {
+        for event in ["PreToolUse", "PostToolUse", "PreToolUse"] {
+            hook(&mut c, event, tool, tool);
+            assert_eq!(c.hub.sessions["codex:x"]["status"], "running");
+            assert_eq!(c.hub.sessions["codex:x"]["pending"], json!([]));
+            assert_eq!(c.hub.snapshot()["events"], json!([]));
+        }
+    }
+    hook(&mut c, "PreToolUse", "functions.request_user_input", "sync");
+    assert_eq!(c.hub.snapshot()["events"].as_array().unwrap().len(), 1);
+    for event in ["PreToolUse", "PostToolUse", "PreToolUse"] {
+        hook(&mut c, event, "functions.request_user_input_async", "parallel");
+        assert_eq!(c.hub.sessions["codex:x"]["status"], "wait");
+        let pending = c.hub.sessions["codex:x"]["pending"].as_array().unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["id"], "sync");
+        assert_eq!(c.hub.snapshot()["events"].as_array().unwrap().len(), 1);
+    }
+    hook(&mut c, "PostToolUse", "functions.request_user_input", "sync");
+    assert_eq!(c.hub.sessions["codex:x"]["status"], "running");
+}

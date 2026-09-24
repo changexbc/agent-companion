@@ -54,6 +54,24 @@ try {
     for(let i=0;i<30;i++){state=await rpc('poll',{client:'wb-switch'});if(state.snapshot.sessions.find(s=>s.sessionId==='question')?.status===status)break;await delay(100);}
     assert.equal(state.snapshot.sessions.find(s=>s.sessionId==='question').status,status);
   }
+  // A trailing step proves the queued async callbacks have reached the collector.
+  for (const event of ['UserPromptSubmit','PreToolUse','PostToolUse']) {
+    execFileSync(hook,['hook','--home',home],{input:JSON.stringify({session_id:'optional-question',turn_id:'optional',hook_event_name:event,tool_name:'functions.request_user_input_async',tool_use_id:'optional-1',tool_input:{questions:[{title:'Optional preference'}]},tool_response:{accepted:true}})});
+  }
+  execFileSync(hook,['hook','--home',home],{input:JSON.stringify({session_id:'optional-question',turn_id:'optional',hook_event_name:'PreToolUse',tool_name:'Bash',tool_use_id:'after-optional'})});
+  const optionalAlerts=[];
+  for(let i=0;i<30;i++) {
+    state=await rpc('poll',{client:'wb-switch'});
+    optionalAlerts.push(...state.notifications);
+    if(state.snapshot.sessions.find(s=>s.sessionId==='optional-question')?.steps.some(s=>s.id==='after-optional'))break;
+    await delay(100);
+  }
+  const optional=state.snapshot.sessions.find(s=>s.sessionId==='optional-question');
+  assert(optional?.steps.some(s=>s.id==='after-optional'));
+  assert.equal(optional.status,'running');
+  assert.deepEqual(optional.pending,[]);
+  assert(!optionalAlerts.some(a=>a.sessionId==='codex:optional-question'&&a.kind==='wait'));
+  assert(!state.snapshot.events.some(a=>a.sessionId==='codex:optional-question'&&a.kind==='wait'));
   const ideHooks=JSON.parse(await fs.readFile(path.join(home,'.codebuddy/settings.json')));
   assert(ideHooks.hooks.Stop.some(g=>g.hooks.some(h=>h.command==='echo keep-ide-hook')));
   assert(ideHooks.hooks.PreToolUse.some(g=>g.hooks.some(h=>h.command.includes('--source codebuddy-ide'))));

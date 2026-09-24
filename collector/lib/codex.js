@@ -23,12 +23,12 @@ export function codexRecord(rec, ctx, emit) {
   else if (type === 'user_message' || type === 'message' && p.role === 'user') {
     // User messages carry titles; task_started is the sole explicit round boundary.
     const text = p.message || contentText(p.content);
-    for(const callId of ctx.asyncQuestions || [])send({type:'resolve',callId});ctx.asyncQuestions?.clear();
     if (text.trim() && !text.trim().startsWith('<') && !text.startsWith('The following is the Codex agent history')) send({ type: 'meta', title: text });
   } else if (['function_call','custom_tool_call'].includes(type)) {
     const name = p.name || 'tool', callId = p.call_id || p.id || `${ts}:${rec.ordinal ?? name}`;
-    if (/(?:^|__|\.)(request_user_input(?:_async)?|AskUserQuestion|ask_user_question|RequestUserInput)$/.test(name)) {
-      if(name.endsWith('request_user_input_async'))(ctx.asyncQuestions ||= new Set()).add(callId);
+    // Remember async calls only to suppress resolve events from their outputs.
+    if (/(?:^|__|\.)request_user_input_async$/.test(name)) (ctx.asyncQuestions ||= new Set()).add(callId);
+    if (/(?:^|__|\.)(request_user_input|AskUserQuestion|ask_user_question|RequestUserInput)$/.test(name)) {
       send({ type: 'wait', callId, tool: name, text: question(p.arguments || p.input), questions: questionDetails(p.arguments || p.input) });
     }
     else send({ type: 'step', eventId: callId, label: name });

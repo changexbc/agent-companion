@@ -244,11 +244,24 @@ test('WorkBuddy resumes in a new stable round and cannot retain an obsolete ask'
  const s=hub.snapshot().sessions[0];assert.equal(s.roundId,'r2');assert.equal(s.status,'running');assert.equal(s.pending.length,0);
 });
 
-test('asynchronous Codex questions remain pending until a user message arrives',()=>{
- const hub=new Hub(),ctx={sessionId:'async'};const feed=p=>codexRecord({timestamp:Date.now(),type:'response_item',payload:p},ctx,e=>hub.ingest(e));
- feed({type:'task_started',turn_id:'a'});feed({type:'function_call',name:'functions.request_user_input_async',call_id:'ask'});
- feed({type:'function_call_output',call_id:'ask',output:'queued'});assert.equal(hub.snapshot().sessions[0].status,'wait');
- feed({type:'message',role:'user',content:[{text:'Blue'}]});assert.equal(hub.snapshot().sessions[0].status,'running');
+test('asynchronous Codex records never wait or resolve a synchronous question',()=>{
+ const hub=new Hub(),ctx={sessionId:'async'},events=[];
+ const feed=p=>codexRecord({timestamp:Date.now(),type:'response_item',payload:p},ctx,e=>{events.push(e);hub.ingest(e)});
+ feed({type:'task_started',turn_id:'a'});
+ for(const name of ['request_user_input_async','functions.request_user_input_async','mcp__codex__request_user_input_async']) {
+  feed({type:'function_call',name,call_id:name});
+  assert.equal(hub.snapshot().sessions[0].status,'running');
+  feed({type:'function_call_output',call_id:name,output:'queued'});
+ }
+ assert.equal(events.filter(e=>['wait','resolve'].includes(e.type)).length,0);
+ feed({type:'function_call',name:'functions.request_user_input',call_id:'sync'});
+ feed({type:'custom_tool_call',name:'functions.request_user_input_async',call_id:'parallel'});
+ feed({type:'custom_tool_call_output',call_id:'parallel',output:'queued'});
+ feed({type:'message',role:'user',content:[{text:'A follow-up'}]});
+ assert.deepEqual(hub.snapshot().sessions[0].pending.map(p=>p.id),['sync']);
+ assert.equal(events.filter(e=>e.type==='resolve').length,0);
+ feed({type:'function_call_output',call_id:'sync',output:'answered'});
+ assert.equal(hub.snapshot().sessions[0].status,'running');
 });
 
 test('WorkBuddy questions preserve option labels and descriptions through the monitor snapshot',async()=>{

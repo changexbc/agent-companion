@@ -138,8 +138,8 @@
       "tool_name": "request_user_input_async",
       "tool_use_id": "async"
     },
-    "status": "wait",
-    "pending": 1
+    "status": "running",
+    "pending": 0
   },
   {
     "hook": {
@@ -147,13 +147,112 @@
       "tool_name": "request_user_input_async",
       "tool_use_id": "async"
     },
-    "status": "wait",
-    "pending": 1
+    "status": "running",
+    "pending": 0
   },
   {
     "hook": {
       "hook_event_name": "UserPromptSubmit",
       "prompt": "Answer"
+    },
+    "status": "running",
+    "pending": 0
+  },
+  {
+    "hook": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "functions.request_user_input_async",
+      "tool_use_id": "functions.async"
+    },
+    "status": "running",
+    "pending": 0
+  },
+  {
+    "hook": {
+      "hook_event_name": "PostToolUse",
+      "tool_name": "functions.request_user_input_async",
+      "tool_use_id": "functions.async"
+    },
+    "status": "running",
+    "pending": 0
+  },
+  {
+    "hook": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "functions.request_user_input_async",
+      "tool_use_id": "functions.async"
+    },
+    "status": "running",
+    "pending": 0
+  },
+  {
+    "hook": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "mcp__codex__request_user_input_async",
+      "tool_use_id": "mcp__codex__async"
+    },
+    "status": "running",
+    "pending": 0
+  },
+  {
+    "hook": {
+      "hook_event_name": "PostToolUse",
+      "tool_name": "mcp__codex__request_user_input_async",
+      "tool_use_id": "mcp__codex__async"
+    },
+    "status": "running",
+    "pending": 0
+  },
+  {
+    "hook": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "mcp__codex__request_user_input_async",
+      "tool_use_id": "mcp__codex__async"
+    },
+    "status": "running",
+    "pending": 0
+  },
+  {
+    "hook": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "functions.request_user_input",
+      "tool_use_id": "sync"
+    },
+    "status": "wait",
+    "pending": 1
+  },
+  {
+    "hook": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "functions.request_user_input_async",
+      "tool_use_id": "parallel-async"
+    },
+    "status": "wait",
+    "pending": 1
+  },
+  {
+    "hook": {
+      "hook_event_name": "PostToolUse",
+      "tool_name": "functions.request_user_input_async",
+      "tool_use_id": "parallel-async"
+    },
+    "status": "wait",
+    "pending": 1
+  },
+  {
+    "hook": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "functions.request_user_input_async",
+      "tool_use_id": "parallel-async"
+    },
+    "status": "wait",
+    "pending": 1
+  },
+  {
+    "hook": {
+      "hook_event_name": "PostToolUse",
+      "tool_name": "functions.request_user_input",
+      "tool_use_id": "sync"
     },
     "status": "running",
     "pending": 0
