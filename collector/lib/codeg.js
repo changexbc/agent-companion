@@ -100,6 +100,18 @@ export class CodegHooks {
       return {title:row.title||'',cwd,agentType:row.agent_type||row.agent||'',externalId:row.external_id||'',folderId:row.folder_id,isSubagent:row.parent_id!=null||row.kind==='delegate'};
     } finally{db.close();}
   }
+  isChildCodexSession(externalId) {
+    if(!this.enabled||!externalId)return false;
+    try {
+      const db=this.open();try{
+        const tables=db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r=>r.name);
+        const table=tables.includes('conversation')?'conversation':'conversations';
+        const id=String(externalId).replace(/^thr_/, '');
+        const row=db.prepare(`SELECT * FROM ${table} WHERE external_id IN (?, ?) LIMIT 1`).get(id,`thr_${id}`);
+        return !!row && String(row.agent_type||row.agent||'').toLowerCase()==='codex' && (row.parent_id!=null||row.kind==='delegate');
+      }finally{db.close();}
+    }catch{return false;}
+  }
   async ingestHook(p) {
     if(!this.enabled||p?.source!=='codeg'||!CODEG_EVENTS.includes(p.event)||typeof p.connection_id!=='string'||!p.connection_id.trim()||p.connection_id.length>256)return false;
     if(this.ignoredConnections.has(p.connection_id))return true;
@@ -112,6 +124,7 @@ export class CodegHooks {
     if(this.connections.size>512)this.connections.delete(this.connections.keys().next().value);
     let meta={};if(!sid.startsWith('connection:'))try{meta=this.metadata(sid);}catch{}
     if(meta.isSubagent) {
+      if(String(meta.agentType).toLowerCase()==='codex')this.hub.hideCodegChildCodex(snap?.external_id||meta.externalId);
       // A known child stays ignored even if later snapshot/metadata reads fail.
       this.ignoredConnections.add(p.connection_id);
       this.streams.get(p.connection_id)?.close();this.streams.delete(p.connection_id);
@@ -171,7 +184,7 @@ export class CodegHooks {
       const sid=String(snap?.conversation_id??'');
       if(!sid)continue;
       let meta={};try {meta=this.metadata(sid);}catch{}
-      if(meta.isSubagent)continue;
+      if(meta.isSubagent){if(String(meta.agentType).toLowerCase()==='codex')this.hub.hideCodegChildCodex(snap?.external_id||meta.externalId);continue;}
       // A webhook may have won the race; never start a round twice or revive
       // the one the hub already finished.
       if(this.hub.sessions.has(`codeg:${sid}`))continue;

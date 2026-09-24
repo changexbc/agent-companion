@@ -452,6 +452,8 @@ fn codeg_startup_alignment_recovers_prompting_connections() {
     api.set_connections(json!([{"id":"connection-1","agent_type":"codex","status":"prompting"}]));
     api.set_snapshot("connection-1",json!({"conversation_id":214,"external_id":"thr-native","folder_id":1,"event_seq":77,"status":"prompting","pending_question":{"question_id":"q1","questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]}]}}));
     let mut c = codeg_home(&home, api.port);
+    assert!(c.is_codeg_child_codex("thr-child"));
+    assert!(!c.is_codeg_child_codex("thr-native"));
     c.poll();
     let session = c.hub.sessions["codeg:214"].clone();
     assert_eq!(session["status"], "wait", "an in-flight session is seeded without a new event");
@@ -525,10 +527,24 @@ fn codeg_startup_alignment_skips_idle_child_and_snapshot_less_connections() {
     api.set_snapshot("child",json!({"conversation_id":215,"status":"prompting","event_seq":4,"pending_question":{"question_id":"q9","questions":[{"question":"Child?"}]}}));
     api.set_snapshot("orphan",json!({"status":"prompting","event_seq":5}));
     let mut c = codeg_home(&home, api.port);
+    c.hub.ingest(json!({"source":"codex","sessionId":"thr-child","type":"start","roundId":"r1","cwd":"/project/test"}));
+    c.hub.ingest(json!({"source":"codex","sessionId":"thr-child","type":"wait","roundId":"r1","callId":"ask","text":"Child question"}));
     c.poll();
-    assert!(c.hub.sessions.is_empty(),"idle, child and snapshot-less connections are never seeded");
+    assert_eq!(c.hub.sessions.len(),1,"the child Codex hook is retained internally");
+    assert!(c.hub.snapshot()["sessions"].as_array().unwrap().is_empty(),"the child Codex hook is hidden from the rail");
     assert!(c.hub.snapshot()["events"].as_array().unwrap().is_empty());
     assert!(!c.ingest_codeg_stream(&json!({"type":"event","connection_id":"child"})),"skipped connections are never subscribed");
+}
+
+#[test]
+fn codeg_child_codex_hook_is_hidden_before_codeg_callback() {
+    let home = Home::new();
+    let mut c = codeg_home(&home, 1);
+    c.settings["sources"]["codex"]["enabled"] = json!(true);
+    assert!(c.ingest_hook(&json!({"session_id":"thr-child","hook_event_name":"UserPromptSubmit","prompt":"Child work"})));
+    assert!(c.hub.snapshot()["sessions"].as_array().unwrap().is_empty());
+    assert!(c.ingest_hook(&json!({"session_id":"native-cli","hook_event_name":"UserPromptSubmit","prompt":"Independent work"})));
+    assert_eq!(c.hub.snapshot()["sessions"].as_array().unwrap().len(),1);
 }
 
 #[test]
@@ -664,7 +680,7 @@ fn codex_session_start_source_is_not_treated_as_agent_source() {
 }
 
 #[test]
-fn codex_hook_only_lifecycle_and_no_restart_restore() {
+fn codex_hook_lifecycle_restores_only_tracked_sessions() {
     let home = Home::new();
     let mut c = home.collector("codex");
     let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../tests/fixtures/codex-hooks.json")).unwrap();
@@ -683,8 +699,141 @@ fn codex_hook_only_lifecycle_and_no_restart_restore() {
     }
     assert_eq!(std::fs::read_to_string(&checkpoint).unwrap(),old);
     let mut restarted=Collector::new(home.0.clone()).unwrap();restarted.poll();
-    assert!(restarted.hub.sessions.is_empty());
-    assert!(restarted.live.is_empty());
+    assert_eq!(restarted.hub.sessions.len(), 1);
+    assert_eq!(restarted.hub.sessions["codex:x"]["status"], "done");
+    assert_eq!(restarted.hub.sessions["codex:x"]["recovered"], true);
+    assert!(restarted.hub.snapshot()["events"].as_array().unwrap().is_empty());
+    assert!(!restarted.hub.sessions.contains_key("codex:old"));
+}
+
+#[test]
+fn codex_offline_stop_wins_over_saved_running_and_new_round_can_start() {
+    let home = Home::new();
+    let mut c = home.collector("codex");
+    let started = now();
+    assert!(c.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"UserPromptSubmit","prompt":"Visible title","timestamp":started})));
+    drop(c);
+    let stopped = started + 100;
+    assert!(agent_studio_core::codex_recovery::record_offline_terminal(&home.0, &json!({"session_id":"tracked","turn_id":"one","hook_event_name":"Stop","timestamp":stopped})).unwrap());
+    assert!(!agent_studio_core::codex_recovery::record_offline_terminal(&home.0, &json!({"session_id":"unknown","turn_id":"one","hook_event_name":"Stop","timestamp":stopped})).unwrap());
+    let mut restarted = Collector::new(home.0.clone()).unwrap();
+    restarted.poll();
+    assert_eq!(restarted.hub.sessions["codex:tracked"]["status"], "done");
+    assert_eq!(restarted.hub.sessions["codex:tracked"]["endedAt"], stopped);
+    assert!(!restarted.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"SessionStart","timestamp":started})));
+    assert_eq!(restarted.hub.sessions["codex:tracked"]["status"], "done");
+    assert!(restarted.ingest_hook(&json!({"session_id":"tracked","turn_id":"two","hook_event_name":"UserPromptSubmit","timestamp":stopped+1})));
+    assert_eq!(restarted.hub.sessions["codex:tracked"]["status"], "running");
+    assert_eq!(restarted.hub.sessions["codex:tracked"]["roundId"], "two");
+    assert!(!restarted.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"UserPromptSubmit","timestamp":stopped})));
+    assert_eq!(restarted.hub.sessions["codex:tracked"]["roundId"], "two");
+}
+
+#[test]
+fn codex_offline_stop_with_equal_timestamp_wins_over_running_memory() {
+    let home = Home::new();
+    let mut collector = home.collector("codex");
+    let timestamp = now();
+    assert!(collector.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"UserPromptSubmit","timestamp":timestamp})));
+    assert!(agent_studio_core::codex_recovery::record_offline_terminal(&home.0, &json!({"session_id":"tracked","turn_id":"one","hook_event_name":"Stop","timestamp":timestamp})).unwrap());
+    collector.poll();
+    assert_eq!(collector.hub.sessions["codex:tracked"]["status"], "done");
+    assert!(!collector.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"PreToolUse","timestamp":timestamp})));
+    assert_eq!(collector.hub.sessions["codex:tracked"]["status"], "done");
+}
+
+#[test]
+fn codex_monitor_close_forgets_only_matching_round_and_next_hook_recreates_it() {
+    let home = Home::new();
+    let mut collector = home.collector("codex");
+    let timestamp = now();
+    assert!(collector.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"UserPromptSubmit","timestamp":timestamp})));
+    assert!(collector.ingest_hook(&json!({"session_id":"other","turn_id":"other-round","hook_event_name":"UserPromptSubmit","timestamp":timestamp})));
+    assert!(collector.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"PreToolUse","tool_name":"request_user_input","tool_use_id":"ask","timestamp":timestamp+1})));
+    assert!(collector.hub.events.iter().any(|event| event["sessionId"] == "codex:tracked"));
+    assert_eq!(collector.request("codex_monitor_close", &json!({"sessionId":"tracked","roundId":"stale"})).unwrap(), json!({"closed":false}));
+    assert_eq!(collector.hub.sessions["codex:tracked"]["roundId"], "one");
+    assert_eq!(collector.request("codex_monitor_close", &json!({"sessionId":"tracked","roundId":"one"})).unwrap(), json!({"closed":true}));
+    assert!(!collector.hub.sessions.contains_key("codex:tracked"));
+    assert!(!collector.live.contains_key("tracked"));
+    assert!(!collector.hub.events.iter().any(|event| event["sessionId"] == "codex:tracked" && event["roundId"] == "one"));
+    assert!(collector.hub.sessions.contains_key("codex:other"));
+    drop(collector);
+    assert!(!agent_studio_core::codex_recovery::record_offline_terminal(&home.0, &json!({"session_id":"tracked","turn_id":"one","hook_event_name":"Stop","timestamp":timestamp+2})).unwrap());
+    let mut restarted = Collector::new(home.0.clone()).unwrap();
+    assert!(!restarted.hub.sessions.contains_key("codex:tracked"));
+    assert!(restarted.hub.sessions.contains_key("codex:other"));
+    assert!(!restarted.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"Stop","timestamp":timestamp+2})));
+    assert!(restarted.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"PreToolUse","tool_name":"functions.exec","tool_use_id":"next","timestamp":timestamp+3})));
+    assert_eq!(restarted.hub.sessions["codex:tracked"]["status"], "running");
+}
+
+#[test]
+fn codex_monitor_close_error_preserves_memory_and_recovery() {
+    let home = Home::new();
+    let mut collector = home.collector("codex");
+    assert!(collector.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"UserPromptSubmit","timestamp":now()})));
+    let lock = home.0.join(".agent-studio/codex-recovery-v1.lock");
+    std::fs::remove_file(&lock).unwrap();
+    std::fs::create_dir(&lock).unwrap();
+    assert!(collector.request("codex_monitor_close", &json!({"sessionId":"tracked","roundId":"one"})).is_err());
+    assert!(collector.hub.sessions.contains_key("codex:tracked"));
+    assert!(collector.live.contains_key("tracked"));
+    std::fs::remove_dir(&lock).unwrap();
+    assert!(Collector::new(home.0.clone()).unwrap().hub.sessions.contains_key("codex:tracked"));
+}
+
+#[test]
+fn codex_monitor_close_forgets_legacy_memory_without_a_recovery_record() {
+    let home = Home::new();
+    let mut collector = home.collector("codex");
+    let timestamp = now();
+    assert!(collector.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"UserPromptSubmit","timestamp":timestamp})));
+    let store = home.0.join(".agent-studio/codex-recovery-v1.json");
+    std::fs::remove_file(&store).unwrap();
+    assert_eq!(collector.request("codex_monitor_close", &json!({"sessionId":"tracked","roundId":"one"})).unwrap(), json!({"closed":true}));
+    assert!(!collector.hub.sessions.contains_key("codex:tracked"));
+    assert!(!Collector::new(home.0.clone()).unwrap().hub.sessions.contains_key("codex:tracked"));
+}
+
+#[test]
+fn codex_recovery_respects_policy_path_age_and_corruption() {
+    let home = Home::new();
+    let mut c = home.collector("codex");
+    let timestamp = now();
+    c.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"UserPromptSubmit","timestamp":timestamp}));
+    drop(c);
+    let mut settings = settings::defaults();
+    settings["sources"]["codex"]["path"] = json!("~/other-codex");
+    atomic_json(&home.0.join(".agent-studio/settings.json"), &settings).unwrap();
+    let changed = Collector::new(home.0.clone()).unwrap();
+    assert!(changed.hub.sessions.is_empty());
+    assert!(agent_studio_core::codex_recovery::record_offline_terminal(&home.0, &json!({"session_id":"tracked","turn_id":"one","hook_event_name":"Stop","timestamp":timestamp+1})).is_ok_and(|accepted| !accepted));
+    settings["sources"]["codex"]["enabled"] = json!(false);
+    atomic_json(&home.0.join(".agent-studio/settings.json"), &settings).unwrap();
+    assert!(Collector::new(home.0.clone()).unwrap().hub.sessions.is_empty());
+    assert!(agent_studio_core::codex_recovery::record_offline_terminal(&home.0, &json!({"session_id":"tracked","hook_event_name":"Stop"})).is_err());
+    settings["sources"]["codex"] = json!({"enabled":true,"path":""});
+    atomic_json(&home.0.join(".agent-studio/settings.json"), &settings).unwrap();
+    let file = home.0.join(".agent-studio/codex-recovery-v1.json");
+    std::fs::write(&file, "broken").unwrap();
+    assert!(Collector::new(home.0.clone()).unwrap().hub.sessions.is_empty());
+    atomic_json(&file, &json!({"version":1,"path":"","sessions":{"tracked":{"session":{"id":"codex:tracked","source":"codex","sessionId":"tracked","roundId":"one","status":"running","updatedAt":timestamp},"live":{"roundId":"one","ended":false}}}})).unwrap();
+    assert!(Collector::new(home.0.clone()).unwrap().hub.sessions.is_empty(), "a recent but incomplete record is discarded");
+    atomic_json(&file, &json!({"version":1,"path":"","sessions":{"tracked":{"session":{"id":"codex:tracked","source":"codex","sessionId":"tracked","roundId":"one","status":"done","updatedAt":timestamp-3_600_001,"endedAt":timestamp-3_600_001},"live":{"roundId":"one","ended":true}}}})).unwrap();
+    assert!(Collector::new(home.0.clone()).unwrap().hub.sessions.is_empty());
+}
+
+#[test]
+fn uninstalling_codex_clears_recovery_and_visible_sessions() {
+    let home = Home::new();
+    let mut collector = home.collector("codex");
+    collector.ingest_hook(&json!({"session_id":"tracked","turn_id":"one","hook_event_name":"UserPromptSubmit","timestamp":now()}));
+    assert!(home.0.join(".agent-studio/codex-recovery-v1.json").exists());
+    collector.set_integration_automatic("codex", false).unwrap();
+    assert!(collector.hub.sessions.is_empty());
+    assert!(!home.0.join(".agent-studio/codex-recovery-v1.json").exists());
+    assert!(Collector::new(home.0.clone()).unwrap().hub.sessions.is_empty());
 }
 
 #[test]
@@ -695,6 +844,8 @@ fn permission_checks_do_not_generate_wait_notifications() {
     }
     assert_eq!(c.hub.sessions["codex:x"]["status"],"running");
     assert_eq!(c.hub.sessions["codex:x"]["permissionChecks"].as_array().unwrap().len(),1);
+    assert_eq!(c.hub.sessions["codex:x"]["permissionChecks"][0]["id"],"perm:a");
+    assert!(c.hub.sessions["codex:x"]["permissionChecks"][0]["ts"].is_number());
     assert!(c.hub.snapshot()["events"].as_array().unwrap().is_empty());
     c.ingest_hook(&json!({"session_id":"x","turn_id":"r","hook_event_name":"PreToolUse","tool_name":"request_user_input","tool_use_id":"q"}));
     c.ingest_hook(&json!({"session_id":"x","turn_id":"r","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"a"}));

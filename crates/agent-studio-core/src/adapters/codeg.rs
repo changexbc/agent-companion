@@ -267,6 +267,7 @@ impl Collector {
     }
     pub fn stop_codeg_webhook(&mut self) {
         self.codeg.streams.clear();
+        self.hub.hidden_codeg_codex_ids.clear();
         self.settings["sources"]["codeg"]["enabled"] = json!(false);
         self.codeg.registered = false;
         self.codeg.next_attempt = None;
@@ -318,6 +319,16 @@ impl Collector {
             json!({"cwd":cwd,"title":raw["title"],"agentType":get(&["agent_type","agent"]),"externalId":raw["external_id"],"folderId":raw["folder_id"],"isSubagent":!raw["parent_id"].is_null() || raw["kind"] == "delegate"}),
         )
     }
+    pub fn is_codeg_child_codex(&self, external_id: &str) -> bool {
+        if self.settings["sources"]["codeg"]["enabled"] != true || !self.integration_automatic("codeg") || external_id.is_empty() { return false; }
+        let Ok(db) = open(&self.paths("codeg")) else { return false; };
+        let table = if db.prepare("SELECT id FROM conversation LIMIT 0").is_ok() { "conversation" } else { "conversations" };
+        let id = external_id.strip_prefix("thr_").unwrap_or(external_id);
+        let Ok(mut st) = db.prepare(&format!("SELECT id FROM {table} WHERE external_id IN (?1, ?2) LIMIT 1")) else { return false; };
+        let Ok(sid) = st.query_row(rusqlite::params![id, format!("thr_{id}")], |r| r.get::<_, i64>(0)) else { return false; };
+        let Ok(meta) = self.codeg_metadata(&sid.to_string()) else { return false; };
+        text(&meta["agentType"]).eq_ignore_ascii_case("codex") && meta["isSubagent"] == true
+    }
     pub fn ingest_codeg_hook(&mut self, p: &Value) -> bool {
         if self.settings["sources"]["codeg"]["enabled"] != true
             || !self.integration_automatic("codeg")
@@ -367,6 +378,10 @@ impl Collector {
             json!({})
         };
         if meta["isSubagent"] == true {
+            if text(&meta["agentType"]).eq_ignore_ascii_case("codex") {
+                let external_id = if text(&snap["external_id"]).is_empty() { text(&meta["externalId"]) } else { text(&snap["external_id"]) };
+                self.hub.hide_codeg_child_codex(&external_id);
+            }
             // Keep known children ignored during subsequent API/database outages.
             self.codeg.streams.remove(&conn);
             self.codeg.ignored_connections.insert(conn);
@@ -537,6 +552,10 @@ impl Collector {
             }
             let meta = self.codeg_metadata(&sid).unwrap_or(json!({}));
             if meta["isSubagent"] == true {
+                if text(&meta["agentType"]).eq_ignore_ascii_case("codex") {
+                    let external_id = if text(&snap["external_id"]).is_empty() { text(&meta["externalId"]) } else { text(&snap["external_id"]) };
+                    self.hub.hide_codeg_child_codex(&external_id);
+                }
                 continue;
             }
             // A webhook may have won the race; never start a round twice or
