@@ -1,4 +1,5 @@
 import './avatar.css';
+import { nextWorkGaze, workGazeDelay } from './avatar-gaze.js';
 
 // Nested groups keep ear pose, state follow-through and occasional twitches independent.
 function ear(side: string, x: number, y: number, shape: string) {
@@ -120,17 +121,82 @@ export function pointAvatar(button: HTMLElement | null | undefined, point: {x: n
   const y = point ? Math.max(-3, Math.min(3, (point.y - rect.y - rect.height / 2) / rect.height * 8)) : 0;
   node.style.transform = `translate(${x}px,${y}px)`;
 }
-// Only animate avatars actually on screen; CSS handles the motion without a frame loop.
+// CSS owns interpolation; one sparse timeout per visible working portrait picks targets.
 export function observeAvatars(root: Element) {
   const media = matchMedia('(prefers-reduced-motion: reduce)');
-  const visibility = () => root.classList.toggle('companion-system-paused', document.hidden || media.matches);
-  const observer = new IntersectionObserver(entries => entries.forEach(({target, isIntersecting}) => target.classList.toggle('companion-visible', isIntersecting)));
+  const portraits = new Map<SVGSVGElement, {timer?: ReturnType<typeof setTimeout>; direction: number}>();
+  const clear = (state: {timer?: ReturnType<typeof setTimeout>}) => {
+    if (state.timer !== undefined) clearTimeout(state.timer);
+    state.timer = undefined;
+  };
+  const reset = (node: SVGSVGElement) => {
+    for (const name of ['x', 'y', 'scale-x', 'scale-y', 'transition']) node.style.removeProperty(`--gaze-${name}`);
+  };
+  const active = (node: SVGSVGElement) => node.dataset.state === 'running'
+    && node.classList.contains('companion-visible') && !document.hidden && !media.matches
+    && !node.closest('.companion-motion-paused, .companion-system-paused')
+    && !node.classList.contains('companion-attentive');
+  const schedule = (node: SVGSVGElement, state: {timer?: ReturnType<typeof setTimeout>; direction: number}) => {
+    state.timer = setTimeout(() => {
+      state.timer = undefined;
+      if (!root.contains(node) || !active(node)) { reconcile(); return; }
+      // Native attention and DOM hover both take priority over autonomous glances.
+      if (!node.closest('.desktop-avatar:hover')) {
+        const pose = nextWorkGaze(state.direction);
+        state.direction = pose.direction;
+        node.style.setProperty('--gaze-x', `${pose.x}px`);
+        node.style.setProperty('--gaze-y', `${pose.y}px`);
+        node.style.setProperty('--gaze-scale-x', String(pose.scaleX));
+        node.style.setProperty('--gaze-scale-y', String(pose.scaleY));
+        node.style.setProperty('--gaze-transition', `${pose.transitionMs}ms`);
+      }
+      schedule(node, state);
+    }, workGazeDelay());
+  };
+  const reconcile = () => {
+    for (const [node, state] of portraits) {
+      if (!root.contains(node)) { clear(state); observer.unobserve(node); portraits.delete(node); reset(node); continue; }
+      if (!active(node)) { clear(state); reset(node); state.direction = 0; }
+      else if (state.timer === undefined) schedule(node, state);
+    }
+  };
+  const visibility = () => {
+    root.classList.toggle('companion-system-paused', document.hidden || media.matches);
+    reconcile();
+  };
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(({target, isIntersecting}) => target.classList.toggle('companion-visible', isIntersecting));
+    reconcile();
+  });
+  // Status, attention, settings, and React detachment all cancel pending work.
+  const changes = new MutationObserver(reconcile);
+  changes.observe(root, {subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'data-state']});
   document.addEventListener('visibilitychange', visibility);
   media.addEventListener('change', visibility);
   visibility();
   return {
-    observe: (node: Element | null | undefined) => { if (node) observer.observe(node); },
-    unobserve: (node: Element | null | undefined) => { if (node) observer.unobserve(node); },
-    dispose() { observer.disconnect(); document.removeEventListener('visibilitychange', visibility); media.removeEventListener('change', visibility); },
+    observe: (node: Element | null | undefined) => {
+      if (node instanceof SVGSVGElement && !portraits.has(node)) {
+        portraits.set(node, {direction: 0});
+        observer.observe(node);
+        reconcile();
+      }
+    },
+    unobserve: (node: Element | null | undefined) => {
+      if (!(node instanceof SVGSVGElement)) return;
+      const state = portraits.get(node);
+      if (state) clear(state);
+      portraits.delete(node);
+      reset(node);
+      observer.unobserve(node);
+    },
+    dispose() {
+      changes.disconnect();
+      observer.disconnect();
+      for (const [node, state] of portraits) { clear(state); reset(node); }
+      portraits.clear();
+      document.removeEventListener('visibilitychange', visibility);
+      media.removeEventListener('change', visibility);
+    },
   };
 }

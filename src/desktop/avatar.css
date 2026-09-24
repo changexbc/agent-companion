@@ -10,6 +10,15 @@
 .companion-look{animation:companion-look 9s ease-in-out var(--motion-delay,0s) infinite}
 .companion-lids{transform-origin:50px 51px;animation:companion-blink var(--blink-time,6s) ease-in-out var(--motion-delay,0s) infinite}
 .companion-lids path{fill:none;stroke:#263c31;stroke-width:5.5;stroke-linecap:round;transition:d .25s ease}
+/* Random gaze targets share one transition; blinking remains on the parent.
+   Scale each eye around itself so widening never changes the eye spacing. */
+.companion-avatar[data-state=running]:not(.companion-attentive) .companion-look{animation:none;transform:translate(var(--gaze-x,0px),var(--gaze-y,0px));transition:transform var(--gaze-transition,.8s) ease-in-out}
+.companion-avatar[data-state=running]:not(.companion-attentive) .companion-lids path{transform-box:fill-box;transform-origin:center;transform:scale(var(--gaze-scale-x,1),var(--gaze-scale-y,1));transition:d .25s ease,transform var(--gaze-transition,.8s) ease-in-out}
+.desktop-avatar:hover .companion-avatar[data-state=running] .companion-look,
+.desktop-avatar:hover .companion-avatar[data-state=running] .companion-lids path,
+.companion-motion-paused .companion-avatar[data-state=running] .companion-look,
+.companion-motion-paused .companion-avatar[data-state=running] .companion-lids path{transform:none}
+@media(prefers-reduced-motion:reduce){.companion-avatar[data-state=running] .companion-look,.companion-avatar[data-state=running] .companion-lids path{transform:none}}
 /* Most of the waiting cycle is still; gaze leads the head and ear. */
 .companion-avatar[data-state=wait] .companion-body{animation:companion-wait-head var(--wait-time,10s) ease-in-out infinite}
 .companion-avatar[data-state=wait] .companion-look{animation:companion-wait-gaze var(--wait-time,10s) ease-in-out infinite}
