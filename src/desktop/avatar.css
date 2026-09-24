@@ -1,4 +1,6 @@
 .companion-avatar{display:block;overflow:visible;flex-shrink:0}
+/* Keep native hover repaints from erasing neighboring ring pixels. */
+.companion-avatar[data-character=cat]{transform:translateZ(0)}
 .companion-body{transform-origin:50px 57px;transition:transform .4s cubic-bezier(.2,.9,.3,1.3)}
 .companion-work{transform-origin:50px 57px}
 .companion-avatar[data-style=bot][data-state=running] .companion-work{animation:var(--work-motion,companion-bot-work) var(--work-time,5s) ease-in-out var(--motion-delay,0s) infinite}
