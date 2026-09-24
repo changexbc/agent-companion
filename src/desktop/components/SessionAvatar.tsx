@@ -35,6 +35,10 @@ export function SessionAvatar({item, presentation, avatarStyle, hidden, controll
       onPointerMove={event => controller.pointerMove(item.id, {x: event.clientX, y: event.clientY})}
       onFocus={() => controller.focusAvatar(item.id)}
       onClick={() => controller.clickAvatar(item.id)}
+      onContextMenu={event => {
+        event.preventDefault();
+        if (item.session.source === 'codex') controller.openContextMenu(item.id, event.clientX, event.clientY);
+      }}
     >
       <AvatarPortrait style={avatarStyle} slot={item.identity.slot} status={presentation.status} />
       <span className="desktop-source" title={label} aria-label={label}>

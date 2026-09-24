@@ -5,6 +5,7 @@
  * without a bundler.
  */
 import type {
+  CodexMonitorCloseResult,
   CollectorRequestCommand,
   DesktopCommand,
   DesktopCommandMap,
@@ -90,6 +91,15 @@ export async function desktopCommand<K extends DesktopCommand>(
 ): Promise<DesktopCommandMap[K]['result']> {
   const { invoke } = await invokeApi();
   return (await invoke(`plugin:agent-studio|${command}`, rest[0] as Record<string, unknown> | undefined)) as DesktopCommandMap[K]['result'];
+}
+
+/** Ends only the tracked Codex round. The next Hook may create another row. */
+export async function closeCodexMonitoring(sessionId: string, roundId: string): Promise<boolean> {
+  if (!isDesktop()) throw new Error('此操作仅在桌面悬浮窗中可用');
+  const result = await desktopCommand('collector_request', {
+    command: 'codex_monitor_close', payload: {sessionId, roundId},
+  }) as CodexMonitorCloseResult;
+  return result.closed === true;
 }
 
 const railPreferenceKey = 'astra.desktop.visible-count.v1';
