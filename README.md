@@ -18,18 +18,16 @@ Agent Companion 是一款桌面悬浮会话助手。把 Codex、WorkBuddy、Code
 
 ### 下载与安装
 
-发布后，在本项目 GitHub 仓库的 **Releases** 页面下载对应系统和芯片架构的安装包。
+在 [Releases](https://github.com/changexbc/agent-companion/releases/latest) 页面下载对应平台与芯片架构的安装包（当前版本 **0.1.0**）。下表的链接始终指向最新发布版本：
 
-> 安装包尚待发布，下载链接将在首次发布后补充。目前仅完成 macOS 验证，Windows / Linux 尚未验证；下表是对应格式发布后的安装指引，实际可用平台以 Release 附件为准。
-
-| 平台 | 选择的安装包 | 安装方式 |
+| 平台 | 下载 | 安装方式 |
 | --- | --- | --- |
-| macOS Apple Silicon（M 系列） | `aarch64` / `arm64` 版本 | 若为 `.dmg`，打开后将 Agent Companion 拖入「应用程序」；若为压缩包，解压后将 `.app` 移入「应用程序」 |
-| macOS Intel | `x86_64` / `x64` 版本 | 同上，注意选择 Intel 版本 |
-| Windows x64 | `.exe` 安装程序 / `.msi` | 下载后双击，按安装向导完成安装 |
-| Linux x64 | `.deb` / `.AppImage` | Debian / Ubuntu 使用软件安装器打开 `.deb`；AppImage 在文件属性中允许执行后运行 |
+| macOS Apple Silicon（M 系列） | [Agent-Companion_mac-arm64.zip](https://github.com/changexbc/agent-companion/releases/latest/download/Agent-Companion_mac-arm64.zip) | 解压后把 `Agent Companion.app` 拖入「应用程序」 |
+| macOS Intel | [Agent-Companion_mac-x64.zip](https://github.com/changexbc/agent-companion/releases/latest/download/Agent-Companion_mac-x64.zip) | 同上，注意选择 Intel 版本 |
+| Windows x64 | [Agent-Companion_windows_x86_64-setup.exe](https://github.com/changexbc/agent-companion/releases/latest/download/Agent-Companion_windows_x86_64-setup.exe) | 下载后双击，按安装向导完成安装 |
+| Linux x64 | [Agent-Companion_linux_x86_64.AppImage](https://github.com/changexbc/agent-companion/releases/latest/download/Agent-Companion_linux_x86_64.AppImage) | 在文件属性中允许执行后直接运行；`.deb` 见 Releases 页（文件名带版本号），用软件安装器打开 |
 
-macOS 要求 **12 或更高版本**。首次打开遇到系统拦截，请参阅下方 [macOS 注意事项](#macos-注意事项)。
+macOS 要求 **12 或更高版本**。首次打开遇到系统拦截，请参阅下方 [macOS 注意事项](#macos-注意事项)。Windows / Linux 尚未完成完整实机验收，遇到的问题欢迎在 Issues 反馈。
 
 ### 应用内更新
 
@@ -117,6 +115,10 @@ npm run demo:dev        # 开发网页演示（虚构数据，端口 4190）
 ```
 
 构建产物位于 `src-tauri/target/release/bundle/macos/Agent Companion.app`。本地构建不生成更新产物（发布构建由 CI 注入签名公钥），因此开发构建的设置页只提示未配置更新签名公钥，不会误报可更新。更多内容见 [开发文档](docs/development.md)、[构建与发布](docs/ci-build.md) 与 [验证记录](docs/validation.md)。
+
+## 致谢
+
+感谢 [Linux.do](https://linux.do) 社区。
 
 ## 许可
 
