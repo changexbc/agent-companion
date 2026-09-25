@@ -232,7 +232,7 @@ export function SettingsForm() {
             <ToggleRow
               field="autostart"
               title="开机自启"
-              hint={values.autostartSupported ? '登录电脑后自动显示悬浮窗' : '请在独立桌面应用中设置'}
+              hint={values.autostartSupported ? '登录电脑后自动显示悬浮窗' : isDesktop() ? '当前环境不支持开机自启，安装正式版后可开启' : '请在独立桌面应用中设置'}
               hintId="login-hint"
               checked={values.autostart}
               disabled={!values.autostartSupported}
