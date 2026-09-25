@@ -10,15 +10,9 @@ Agent Companion 是一款桌面悬浮会话助手。把 Codex、WorkBuddy、Code
 
 适合同时运行多个 Agent、在不同项目之间切换，又不想反复打开窗口检查进度的人。
 
-## 网页交互演示
+### 在线演示
 
-无需安装，直接在浏览器里体验悬浮栏交互：<https://changexbc.github.io/agent-companion/>
-
-演示页复用桌面版真实的悬浮栏组件与会话卡片，但**页面中的会话、项目、任务名称和状态全部是虚构数据**：它不连接真实 Hook / Webhook，不读取本机会话，也不会打开任何原会话。可以拖动模拟窗口、悬停或用键盘聚焦头像查看卡片、展开任务列表，并切换「工作中 / 待确认 / 已完成」场景。
-
-浏览器里能体验的是交互本身；点击穿透、窗口置顶、打开原会话、关闭监听等系统级能力只在桌面应用中可用，页面会明确说明这些操作在浏览器中的结果。公开地址由仓库的 GitHub Pages 提供，若仓库尚未启用 Pages 或发布流程失败，请以仓库 Actions 页面的实际状态为准。
-
-演示构建由 `npm run build:demo` 生成（输出 `dist-demo/`），发布流程见 `.github/workflows/pages.yml`；日常的 `npm run build` 仍然只产出悬浮栏与设置页两个桌面入口。
+[打开 GitHub Pages 在线演示](https://changexbc.github.io/agent-companion/)（只读演示；会话、项目与状态均为虚构数据，不连接 Hook / Webhook，也不打开原会话。）
 
 ## 快速开始
 
@@ -126,4 +120,4 @@ npm run demo:dev        # 开发网页演示（虚构数据，端口 4190）
 
 ## 许可
 
-项目许可证待补充。已有版权与许可证声明继续保留；Agent 图标归各自权利人所有，详见 [图标来源说明](public/icons/agents/README.md)。
+[MIT](./LICENSE)
