@@ -45,13 +45,15 @@ node scripts/qa-rust-parity.mjs                                   # 只对应 ru
 
 ### 额度
 
+> 仓库已于 2026-09-25 转公开，标准 runner 免费，下面的额度测算只作为私有阶段的取舍记录保留。
+
 私有 Free 每月 2000 分钟，ubuntu 按 1× 计费、Windows 2×、macOS 10×。本方案每次 push 约 13 计费分钟（ubuntu ~7 + windows ~6），约合每月 150 次 push；若把 macOS 加进矩阵会变成每次约 43 分钟、每月只剩 40 多次——这是 `rust` 矩阵只有两个平台、以及手动验证时优先选 `platform=linux-x64` 的直接原因。转公开后标准 runner 免费，这个约束消失。
 
-### 转公开后的三件后续
+### 转公开后的三件后续（2026-09-25 已转公开）
 
-1. `test.yml` 增加 `pull_request` 触发：私有阶段没有协作者，PR 触发只是白烧额度。
-2. 评估把 `macos-14` 加回 `rust` 矩阵：只有出现 macOS 专属分支（如 `#[cfg(target_os = "macos")]`）或打包环境相关改动时才值得。
-3. 把 job 的显示名（`name`，不是 YAML 里的 job id）配成 required status check。发布路径用 `quality gate`。推送路径用 `web checks`、`rust tests (ubuntu-24.04)`、`rust tests (windows-latest)`，若也要卡住快照漂移再加 `rust/node parity`。矩阵展开后的检查名带操作系统，写成 `rust tests` 匹配不到；第一次运行后以分支保护列表里出现的字符串为准。**现在配不了**：`changexbc/agent-companion` 是 GitHub Free 私有仓库，实测 `branches/main/protection` 与 `rulesets` 都返回 403（`Upgrade to GitHub Pro or make this repository public`）。本轮交付的是「拦住发布」，「拦住推送」要等转公开。
+1. ✅ `test.yml` 已增加 `pull_request` 触发；标准 runner 免费后，PR 触发不再消耗额度。
+2. ⏳ 评估把 `macos-14` 加回 `rust` 矩阵：只有出现 macOS 专属分支（如 `#[cfg(target_os = "macos")]`）或打包环境相关改动时才值得。macOS 打包本身用 `workflow_dispatch platform=mac-arm64` 单独验证，不必进测试矩阵。
+3. ✅ 分支保护已配置推送路径的三个 required status check：`web checks`、`rust tests (ubuntu-24.04)`、`rust tests (windows-latest)`（`strict` 开启，不要求 PR，直接推 `main` 不受影响）。发布路径的 `quality gate` 只在 tag / 手动构建里出现，配成 required 会让普通 PR 永久停在「Expected」，因此不配——它已经由 `build` 矩阵的 `needs: [select-platforms, quality]` 挡住。
 
 ## 更新签名密钥
 

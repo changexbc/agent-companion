@@ -2,10 +2,11 @@ name: Test suite
 
 # 测试必须独立于发布路径：build.yml 只在 tag push / 手动触发，测试若只挂在它下面，
 # 就只在发版时执行——回归会整版漏出去。本 workflow 每次 push main 即跑。
-# 转公开后再开 pull_request 触发：私有阶段没有协作者，PR 触发只是白烧额度。
+# 仓库已转公开（2026-09-25），标准 runner 免费，因此同时接受 pull_request 触发。
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
