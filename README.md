@@ -10,6 +10,16 @@ Agent Companion 是一款桌面悬浮会话助手。把 Codex、WorkBuddy、Code
 
 适合同时运行多个 Agent、在不同项目之间切换，又不想反复打开窗口检查进度的人。
 
+## 网页交互演示
+
+无需安装，直接在浏览器里体验悬浮栏交互：<https://changexbc.github.io/agent-companion/>
+
+演示页复用桌面版真实的悬浮栏组件与会话卡片，但**页面中的会话、项目、任务名称和状态全部是虚构数据**：它不连接真实 Hook / Webhook，不读取本机会话，也不会打开任何原会话。可以拖动模拟窗口、悬停或用键盘聚焦头像查看卡片、展开任务列表，并切换「工作中 / 待确认 / 已完成」场景。
+
+浏览器里能体验的是交互本身；点击穿透、窗口置顶、打开原会话、关闭监听等系统级能力只在桌面应用中可用，页面会明确说明这些操作在浏览器中的结果。公开地址由仓库的 GitHub Pages 提供，若仓库尚未启用 Pages 或发布流程失败，请以仓库 Actions 页面的实际状态为准。
+
+演示构建由 `npm run build:demo` 生成（输出 `dist-demo/`），发布流程见 `.github/workflows/pages.yml`；日常的 `npm run build` 仍然只产出悬浮栏与设置页两个桌面入口。
+
 ## 快速开始
 
 ### 下载与安装
@@ -109,6 +119,7 @@ Codeg 内运行的 Codex、Grok 等 Agent 会显示内部 Agent 标识，但接�
 npm ci
 npm run dev             # 启动桌面开发模式
 npm run desktop:build   # 当前配置构建 macOS .app
+npm run demo:dev        # 开发网页演示（虚构数据，端口 4190）
 ```
 
 构建产物位于 `src-tauri/target/release/bundle/macos/Agent Companion.app`。本地构建不生成更新产物（发布构建由 CI 注入签名公钥），因此开发构建的设置页只提示未配置更新签名公钥，不会误报可更新。更多内容见 [开发文档](docs/development.md)、[构建与发布](docs/ci-build.md) 与 [验证记录](docs/validation.md)。
