@@ -26,17 +26,17 @@
  * Animation follows from that: `afterCommit()` runs in a layout effect after
  * every commit and is the only place a Web Animation starts.
  */
-import { createRailModel, type RailItem } from './rail-model.js';
+import { createRailModel, type PortraitStorage, type RailItem } from './rail-model.js';
 import { automaticReminderItems, questionKey } from '../monitor/reminders.js';
 import { permissionReminderKey, prolongedPermissionCheck } from '../monitor/permission-check.js';
 import { sessionPresentation } from '../monitor/presentation.js';
 import { openSessionLink } from '../monitor/session-link.js';
-import { createSSETransport } from '../monitor/transport.js';
+import { createSSETransport, type Subscribe } from '../monitor/transport.js';
 import { closeSessionMonitoring, isDesktop, onDesktopPointer, onDesktopWindowActive } from './host.js';
 import { createRailWelcome, type RailWelcomeState } from './welcome/index.js';
 import { createHitRegions, type HitRegions } from './hit-regions.js';
 import { loadPreferences, watchPreferences } from './preferences.js';
-import type { RailSize } from '../types/settings.js';
+import type { RailPreferencesState, RailSize } from '../types/settings.js';
 import { avatarIdentity, observeAvatars, pointAvatar, type AvatarStyle } from './avatar.js';
 import { animateArrival, animateHeight, animateReorder, cancelHeightAnimations, leaveSurface, reducedMotion, revealSurface, retireGhost } from './rail-animations.js';
 import type { ConnectionState } from '../types/snapshot.js';
@@ -76,10 +76,38 @@ export interface RailState {
 
 export type RailController = ReturnType<typeof createRailController>;
 
-export function createRailController() {
-  let storage: Storage | undefined;
-  try { storage = localStorage; } catch { /* An unavailable store only costs the portrait cache. */ }
-  const model = createRailModel({ storage });
+/**
+ * The native edges of the rail, each replaceable so the public web demo can run
+ * the same controller with no host behind it. Every default is the untouched
+ * production path: the desktop bridge or the browser's own monitor stream,
+ * the real link opener, the real close command, the shared preferences and the
+ * persistent portrait cache. Only a demo build passes replacements, and it
+ * passes all of them, so no injected seam can silently mix demo and real data.
+ */
+export interface RailControllerOptions {
+  /** Where snapshots and connection changes come from. */
+  subscribe?: Subscribe;
+  /** Opens a session link; resolves when the hand-off was made. */
+  openSessionLink?: (url: string) => void | Promise<void>;
+  /** Closes one monitor round; resolves to whether the round was closed. */
+  closeMonitoring?: (source: string, sessionId: string, roundId: string) => Promise<boolean>;
+  /** The rail's appearance preferences. */
+  loadPreferences?: () => Promise<RailPreferencesState>;
+  /** Portrait and dismissal cache; `null` disables persistence. */
+  storage?: PortraitStorage | null;
+}
+
+function browserStorage(): PortraitStorage | null {
+  try { return localStorage; } catch { /* An unavailable store only costs the portrait cache. */ return null; }
+}
+
+export function createRailController(options: RailControllerOptions = {}) {
+  const readPreferences = options.loadPreferences ?? loadPreferences;
+  const openLink = options.openSessionLink ?? openSessionLink;
+  const endMonitoring = options.closeMonitoring ?? closeSessionMonitoring;
+  // `??` short-circuits, so a demo build never constructs a transport at all.
+  const subscribeToSessions = options.subscribe ?? createSSETransport().subscribe;
+  const model = createRailModel({ storage: options.storage !== undefined ? options.storage : browserStorage() });
   const mutedQuestions = new Map<string, string>();
 
   let avatarStyle: AvatarStyle = 'animal';
@@ -306,7 +334,7 @@ export function createRailController() {
     const roundId = item.session.roundId;
     if (finished) { model.retainOpened(item.id, roundId); sync(); }
     try {
-      await openSessionLink(presentation.url);
+      await openLink(presentation.url);
       if (finished) {
         model.retainOpened(item.id, roundId);
         if (activeId === item.id && !model.items.some(row => row.id === item.id)) hide();
@@ -446,7 +474,7 @@ export function createRailController() {
   }
 
   const unsubscribeSettings = watchPreferences(applySettings);
-  const unsubscribeTransport = createSSETransport().subscribe(
+  const unsubscribeData = subscribeToSessions(
     snapshot => { model.accept(snapshot); sync(); },
     value => { if (value === model.connection) return; model.connect(value); sync(); },
   );
@@ -607,7 +635,7 @@ export function createRailController() {
       contextMenu = {...current, busy: true};
       publish();
       try {
-        const closed = await closeSessionMonitoring(item.session.source, item.session.sessionId, current.roundId);
+        const closed = await endMonitoring(item.session.source, item.session.sessionId, current.roundId);
         if (!closed) throw new Error('这次监听未关闭，请重试');
         model.forgetMonitoring(current.id, current.roundId);
         if (contextMenu?.id === current.id && contextMenu.roundId === current.roundId) contextMenu = null;
@@ -666,12 +694,12 @@ export function createRailController() {
     afterCommit,
 
     start() {
-      loadPreferences().then(applySettings).catch(error => { welcomeController.setPreferences(null); showError(error); });
+      readPreferences().then(applySettings).catch(error => { welcomeController.setPreferences(null); showError(error); });
       sync();
     },
     dispose() {
       welcomeController.dispose();
-      unsubscribeWindowActive(); unsubscribePointer(); unsubscribeSettings(); unsubscribeTransport();
+      unsubscribeWindowActive(); unsubscribePointer(); unsubscribeSettings(); unsubscribeData();
       avatarObserver?.dispose(); resize.disconnect(); window.removeEventListener('resize', onWindowResize);
       clearTimeout(expiryTimer); clearTimeout(hideTimer); clearTimeout(noticeTimer);
     },
