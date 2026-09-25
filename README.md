@@ -93,13 +93,15 @@ Codeg 内运行的 Codex、Grok 等 Agent 会显示内部 Agent 标识，但接�
 
 ### 首次启动提示无法验证开发者
 
-当前本地构建未进行开发者签名或公证。如果 macOS 阻止打开，确认应用来自可信来源后：
+发布包未做开发者签名与公证。macOS 首次启动若提示无法验证开发者，先在 Finder 中按住 Control 点击应用并选择「打开」，或前往「系统设置 → 隐私与安全性」选择「仍要打开」。
 
-1. 尝试打开一次 Agent Companion。
-2. 进入「系统设置 → 隐私与安全性」。
-3. 找到该应用的拦截提示，点击「仍要打开」，按系统提示确认。
+**仅当安装包来自本仓库官方 Releases、且系统仍提示「已损坏」时**，再执行下面这条命令移除隔离标记（其余情况不要执行）：
 
-具体操作见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。
+```bash
+xattr -rd com.apple.quarantine "/Applications/Agent Companion.app"
+```
+
+具体操作见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。通过应用内更新安装的版本不带隔离标记，不会触发该提示。
 
 ### 没有显示会话
 
