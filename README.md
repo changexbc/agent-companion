@@ -63,6 +63,12 @@ macOS 要求 **12 或更高版本**。首次打开遇到系统拦截，请参阅
 | 应用内更新 | 设置页检查、下载并重启安装签名更新包，可为更新单独配置 HTTP/HTTPS 代理 |
 | 原生监控 | Rust 本地服务接收 Hooks / Webhook；打包后的应用无需 Node.js 或 Python |
 
+## 界面预览
+
+网页演示里的悬浮栏：Codex 会话已完成、WorkBuddy 会话运行失败，两种状态都会自动弹出信息卡，头像上分别是绿色对勾与红色叉号（截图取自[在线演示](https://changexbc.github.io/agent-companion/)，数据全部为虚构）。
+
+![网页演示的悬浮栏：一个已完成的 Codex 会话与一个失败的 WorkBuddy 会话，各自弹出信息卡](docs/images/demo-rail-states.png)
+
 ## Agent 支持范围
 
 以下是四个内置来源在当前 macOS 版本中的能力。✅ 表示支持，— 表示不支持或不使用该接入方式；CodeBuddy IDE 与 VS Code 插件共用一个来源，但跳转目标不同。
