@@ -1,6 +1,6 @@
 import type { Session } from '../types/snapshot.js';
 
-export const PERMISSION_CHECK_REMINDER_MS = 20_000;
+export const PERMISSION_CHECK_REMINDER_MS = 90_000;
 
 // This is a slow-request reminder, not evidence that Codex is waiting for a person.
 export function prolongedPermissionCheck(session: Session, now = Date.now()): boolean {
