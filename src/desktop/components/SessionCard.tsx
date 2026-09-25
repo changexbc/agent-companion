@@ -27,7 +27,10 @@ export function SessionCard({item, connection, surfaceKey, controller}: {
   const providerHint = presentation.badge?.detail ?? label;
   const project = railProjectLabel(item.session, presentation.provider);
   const slowPermission = prolongedPermissionCheck(item.session);
-  const dismissTitle = item.session.status === 'wait' ? '关闭本次待确认提示' : slowPermission ? '关闭本次权限提醒' : '收起已完成任务';
+  const dismissTitle = item.session.status === 'wait' ? '关闭本次待确认提示'
+    : slowPermission ? '关闭本次权限提醒'
+      : item.session.status === 'error' ? '关闭本次失败提示'
+        : '收起已完成任务';
   return (
     <div className="desktop-card-body">
       <div className="desktop-card-head">

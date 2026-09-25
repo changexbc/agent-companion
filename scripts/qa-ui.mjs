@@ -47,6 +47,16 @@ const page=await context.newPage();
 const fieldsetDisabled=()=>page.locator('fieldset').evaluate(fieldset=>fieldset.disabled);
 page.on('pageerror',e=>errors.push(e.message));
 page.on('response',r=>{resources.push(r.url());if(r.status()>=400&&!r.url().endsWith('favicon.ico'))failed.push(r.url());});
+// Playwright leaves the pointer where it last clicked, and a row under the
+// pointer keeps its hover card open — a hover card deliberately wins over the
+// automatic card for the same session, so the automatic card stays hidden until
+// the pointer leaves. Park it off the rail and wait the hover card out before
+// asserting an automatic card; the product rule is right, the assertion just
+// has to stop hovering.
+const clearHoverCard=async()=>{
+  await page.mouse.move(4,580);
+  await page.locator('#desktop-session-card').waitFor({state:'detached'});
+};
 await fs.mkdir('artifacts/ui',{recursive:true});
 try {
   await page.goto('http://127.0.0.1:4191/desktop.html');
@@ -103,6 +113,7 @@ try {
   await page.keyboard.press('Escape');
   codeBuddy.status='done';codeBuddy.endedAt=Date.now();codeBuddy.updatedAt=Date.now();
   await page.evaluate(s=>__snapshot([s]),codeBuddy);
+  await clearHoverCard();
   await page.locator('.desktop-automatic-card [data-status=done]').waitFor({state:'visible'});
   assert.equal(await page.locator('.desktop-automatic-card .desktop-provider img').count(),2,'the CodeBuddy VS Code card retains both provider icons');
   assert.equal(await page.locator('.desktop-automatic-card .desktop-provider').innerText(),'','the CodeBuddy icons have no visible provider name');
@@ -122,6 +133,7 @@ try {
   }
   for(const project of generatedProjects){project.status='done';project.endedAt=Date.now();project.updatedAt=Date.now();}
   await page.evaluate(s=>__snapshot(s),generatedProjects);
+  await clearHoverCard();
   await page.locator('.desktop-automatic-card').nth(1).waitFor({state:'visible'});
   const projectLabels=await page.locator('.desktop-automatic-card .desktop-card-head strong').allTextContents();
   assert(projectLabels.includes('聊天')&&projectLabels.includes('任务 · 09/24 17:24'),'generated directories show chat and task labels');
@@ -156,6 +168,21 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('.desktop-card').waitFor({state:'detached'});
   assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('data-session-id')),session.id,'Escape returns focus to the row that opened the card');
+  // A failure is a finished round like a completion, so the rail must raise its
+  // card without a hover. It needs a new round of its own: the completion above
+  // was closed for r1, and a closed round never reopens.
+  session.status='error';session.roundId='r3';session.endedAt=Date.now();session.updatedAt=Date.now();
+  await page.evaluate(s=>__snapshot([s]),session);
+  await page.locator('.desktop-avatar[data-status=error]').waitFor();
+  await clearHoverCard();
+  await page.locator('.desktop-automatic-card [data-status=error]').waitFor({state:'visible'});
+  assert.match(await page.locator('.desktop-automatic-card').innerText(),/失败/,'the failure card names the status');
+  assert.equal(await page.locator('.desktop-automatic-card .desktop-dismiss').getAttribute('title'),'关闭本次失败提示','the failure card names its own dismissal');
+  await page.screenshot({path:'artifacts/ui/error.png'});
+  await page.locator('.desktop-automatic-card .desktop-dismiss').click();
+  await page.locator('.desktop-automatic-card').waitFor({state:'detached'});
+  await page.evaluate(s=>__snapshot([s]),session);
+  assert.equal(await page.locator('.desktop-automatic-card').count(),0,'a dismissed failure stays closed on repeated snapshots');
   // Hold the first read open. The retry button must not be reachable while a read
   // is in flight, or a stale success can overwrite a failure the user already saw.
   holdRead=true;
@@ -322,7 +349,7 @@ try {
   assert.deepEqual(errors,[]);
   assert(!resources.some(url=>/three|\.glb|\.exr|\/models\//i.test(url)));
   checks.push(
-    'empty','running','wait reminder','quiet done','settings persistence',
+    'empty','running','wait reminder','quiet done','failure reminder','settings persistence',
     'no retry while a read is in flight','row label toggles the switch','automatic changes persist without submit',
     'save re-reads then writes once','source write failure is not reported as success',
     'partial save is not reported as success','shared schema preserved',
@@ -332,7 +359,7 @@ try {
   await railMotion();
   await railDesktopPath();
   await fs.writeFile('artifacts/ui/report.json',JSON.stringify({passed:true,errors,failed,checks},null,2));
-  console.log('PASS: rail lifecycle, question and completion reminders, settings persistence, no office resources');
+  console.log('PASS: rail lifecycle, question, completion and failure reminders, settings persistence, no office resources');
 } finally {await browser.close();await new Promise(resolve=>server.httpServer.close(resolve));}
 
 async function railMigrationRegressions(){
