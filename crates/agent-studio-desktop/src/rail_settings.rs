@@ -37,9 +37,21 @@ fn product_name(app: &tauri::AppHandle) -> String {
 /// command line at 260 characters.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn run_value_data(program: &Path) -> Result<String, String> {
-    let data = format!("\"{}\"", program.to_string_lossy());
+    let data = format!("\"{}\"", plain_path(&program.to_string_lossy()));
     if data.chars().count() > 260 { return Err("开机自启路径超过 260 字符，无法写入注册表".into()); }
     Ok(data)
+}
+
+/// `std::fs::canonicalize` spells Windows paths in the verbatim `\\?\` form.
+/// Explorer, Task Manager and security software all expect the ordinary
+/// spelling in a Run value, so the prefix is stripped before writing and before
+/// comparing. `\\?\UNC\server\share` becomes `\\server\share`.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn plain_path(value: &str) -> String {
+    match value.strip_prefix(r"\\?\UNC\") {
+        Some(rest) => format!(r"\\{rest}"),
+        None => value.strip_prefix(r"\\?\").unwrap_or(value).to_owned(),
+    }
 }
 
 /// `REG_SZ` data is UTF-16LE, and its terminator counts towards `cbData`.
@@ -50,13 +62,27 @@ fn reg_sz_bytes(value: &str) -> Vec<u16> {
 
 /// Canonical form of a stored Run value, so a respelled path (short names, for
 /// instance) compares equal to the freshly resolved target. An unresolvable
-/// path is compared as-is.
+/// path is compared as-is. The verbatim `\\?\` prefix is removed here too, or
+/// every read would look different from the plain value `run_value_data` writes.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn canonical_run_value(value: &str) -> String {
-    match std::fs::canonicalize(value.trim_matches('"')) {
-        Ok(path) => format!("\"{}\"", path.to_string_lossy()),
+    match std::fs::canonicalize(value.trim().trim_matches('"')) {
+        Ok(path) => format!("\"{}\"", plain_path(&path.to_string_lossy())),
         Err(_) => value.to_owned(),
     }
+}
+
+/// `\\?\` is the same file after canonicalization, but Explorer does not want
+/// that spelling in a Run value. Quoted short names are not rejected: those
+/// already compare equal and must not be rewritten on every read.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn stored_run_spelling_rejected(value: &str) -> bool {
+    value.trim().trim_matches('"').starts_with(r"\\?\")
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn run_value_needs_rewrite(current: &str, expected: &str) -> bool {
+    stored_run_spelling_rejected(current) || canonical_run_value(current) != expected
 }
 
 /// `Exec` escaping per the Desktop Entry Spec. The quoting layer escapes `\`,
@@ -97,6 +123,32 @@ fn desktop_entry_hidden(body: &str) -> bool {
         let line = line.trim();
         !line.starts_with('#') && line.split_once('=').is_some_and(|(key, value)| key.trim() == "Hidden" && value.trim() == "true")
     })
+}
+
+/// `Exec` value from the main `[Desktop Entry]` group, not from actions.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn desktop_entry_exec(body: &str) -> Option<&str> {
+    let mut in_group = false;
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        if let Some(header) = line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
+            in_group = header == "Desktop Entry";
+            continue;
+        }
+        if !in_group { continue; }
+        if let Some((key, value)) = line.split_once('=') {
+            if key.trim() == "Exec" { return Some(value.trim()); }
+        }
+    }
+    None
+}
+
+/// True only when an active entry points somewhere else. Other keys
+/// (`X-GNOME-Autostart-enabled`, comments) are not the launch target.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn autostart_target_differs(body: &str, expected: &str) -> bool {
+    !desktop_entry_hidden(body) && desktop_entry_exec(body) != desktop_entry_exec(expected)
 }
 
 /// `$XDG_CONFIG_HOME/autostart`, which Tauri's `config_dir` already resolves.
@@ -316,22 +368,25 @@ fn set_login(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
 }
 
 /// Rewrites a login item whose target no longer matches this binary — the one
-/// case a moved AppImage or a reinstall leaves behind. Failures are ignored so
-/// reading the settings never fails because of the repair.
+/// case a moved AppImage or a reinstall leaves behind. A Windows value that
+/// still carries the verbatim `\\?\` prefix is rewritten even though it names
+/// the same file. Failures are ignored so reading settings never fails because
+/// of the repair. Embedded hosts do not get their login item edited.
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 fn heal_login(app: &tauri::AppHandle) {
+    if !managed(app) { return; }
     let Ok(launch) = launch_command(app) else { return; };
     #[cfg(target_os = "windows")]
     {
         let name = product_name(app);
         let (Ok(expected), Ok(Some(current))) = (run_value_data(&launch.program), win_login::read(&name)) else { return; };
-        if canonical_run_value(&current) != expected { let _ = win_login::write(&name, &expected); }
+        if run_value_needs_rewrite(&current, &expected) { let _ = win_login::write(&name, &expected); }
     }
     #[cfg(target_os = "linux")]
     {
         let (Ok(file), Ok(expected)) = (autostart_file(app), desktop_entry(&product_name(app), AUTOSTART_COMMENT, &launch.program)) else { return; };
         let Ok(Some(body)) = xdg_login::read(&file) else { return; };
-        if !desktop_entry_hidden(&body) && body != expected { let _ = xdg_login::write(&file, &expected); }
+        if autostart_target_differs(&body, &expected) { let _ = xdg_login::write(&file, &expected); }
     }
 }
 
@@ -399,9 +454,24 @@ mod tests {
             run_value_data(Path::new(r"C:\Users\a b\AppData\Local\Agent Companion\agent-companion.exe")).unwrap(),
             r#""C:\Users\a b\AppData\Local\Agent Companion\agent-companion.exe""#
         );
-        // 258 characters plus the two quotes fill the 260 allowed.
+        // `canonicalize` hands over the verbatim form on Windows; the Run value
+        // must keep the ordinary spelling.
+        assert_eq!(
+            run_value_data(Path::new(r"\\?\C:\Users\a b\AppData\Local\Agent Companion\agent-companion.exe")).unwrap(),
+            r#""C:\Users\a b\AppData\Local\Agent Companion\agent-companion.exe""#
+        );
+        // 258 characters plus the two quotes fill the 260 allowed. The verbatim
+        // prefix is not stored, so it must not consume that budget.
         assert!(run_value_data(&PathBuf::from("x".repeat(258))).is_ok());
         assert!(run_value_data(&PathBuf::from("x".repeat(259))).is_err());
+        assert!(run_value_data(&PathBuf::from(format!(r"\\?\{}", "x".repeat(258)))).is_ok());
+    }
+    #[test]
+    fn plain_path_strips_the_verbatim_prefix_only() {
+        assert_eq!(plain_path(r"\\?\C:\Users\a b\agent-companion.exe"), r"C:\Users\a b\agent-companion.exe");
+        assert_eq!(plain_path(r"\\?\UNC\server\share\agent-companion.exe"), r"\\server\share\agent-companion.exe");
+        assert_eq!(plain_path(r"C:\Users\a b\agent-companion.exe"), r"C:\Users\a b\agent-companion.exe");
+        assert_eq!(plain_path("/usr/bin/agent-companion"), "/usr/bin/agent-companion");
     }
     #[test]
     fn reg_sz_bytes_are_utf16_with_a_terminator() {
@@ -411,7 +481,22 @@ mod tests {
     fn canonical_run_value_rewrites_known_paths_only() {
         assert_eq!(canonical_run_value("\"Z:\\missing\\agent-companion.exe\""), "\"Z:\\missing\\agent-companion.exe\"");
         let exe = std::env::current_exe().unwrap();
-        assert_eq!(canonical_run_value(&exe.to_string_lossy()), format!("\"{}\"", std::fs::canonicalize(&exe).unwrap().to_string_lossy()));
+        let rewritten = canonical_run_value(&exe.to_string_lossy());
+        assert_eq!(rewritten, format!("\"{}\"", plain_path(&std::fs::canonicalize(&exe).unwrap().to_string_lossy())));
+        assert!(!rewritten.contains(r"\\?\"));
+    }
+    #[test]
+    fn verbatim_run_spelling_is_rewritten_even_when_the_target_matches() {
+        assert!(stored_run_spelling_rejected(r#""\\?\C:\Agent Companion\agent-companion.exe""#));
+        assert!(stored_run_spelling_rejected(r#""\\?\UNC\server\share\agent-companion.exe""#));
+        assert!(!stored_run_spelling_rejected(r#""C:\Agent Companion\agent-companion.exe""#));
+        assert!(!stored_run_spelling_rejected("\"/usr/bin/agent-companion\""));
+        let exe = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let expected = run_value_data(&exe).unwrap();
+        assert!(!expected.contains(r"\\?\"));
+        assert!(!run_value_needs_rewrite(&expected, &expected));
+        let verbatim = format!("\"{}{}\"", r"\\?\", expected.trim_matches('"'));
+        assert!(run_value_needs_rewrite(&verbatim, &expected));
     }
     #[test]
     fn xdg_exec_quote_follows_the_desktop_entry_escaping_table() {
@@ -438,6 +523,21 @@ mod tests {
         assert!(!desktop_entry_hidden("[Desktop Entry]\nHidden=false\n"));
         assert!(!desktop_entry_hidden("[Desktop Entry]\nName=Agent Companion\n"));
         assert!(!desktop_entry_hidden("# Hidden=true\n"));
+    }
+    #[test]
+    fn autostart_heal_compares_the_exec_target_only() {
+        let expected = desktop_entry("Agent Companion", "登录后自动显示会话悬浮窗", Path::new("/usr/bin/agent-companion")).unwrap();
+        assert_eq!(desktop_entry_exec(&expected), Some("/usr/bin/agent-companion"));
+        assert!(!autostart_target_differs(&expected, &expected));
+        let gnome_off = expected.replace("X-GNOME-Autostart-enabled=true", "X-GNOME-Autostart-enabled=false");
+        assert!(!autostart_target_differs(&gnome_off, &expected));
+        let hidden = expected.replace("StartupNotify=false", "Hidden=true");
+        assert!(!autostart_target_differs(&hidden, &expected));
+        let moved = expected.replace("/usr/bin/agent-companion", "/opt/moved/agent-companion");
+        assert!(autostart_target_differs(&moved, &expected));
+        let spaced = desktop_entry("Agent Companion", "c", Path::new("/opt/Agent Companion/app")).unwrap();
+        assert_eq!(desktop_entry_exec(&spaced), Some("\"/opt/Agent Companion/app\""));
+        assert_eq!(desktop_entry_exec("[Desktop Action x]\nExec=/other\n[Desktop Entry]\nExec=/usr/bin/agent-companion\n"), Some("/usr/bin/agent-companion"));
     }
     #[test]
     fn autostart_dir_joins_the_config_directory() {
