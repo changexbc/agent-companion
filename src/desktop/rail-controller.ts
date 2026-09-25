@@ -135,6 +135,7 @@ export function createRailController(options: RailControllerOptions = {}) {
   let animationEnabled = true;
   let welcome: RailWelcomeState = {phase: 'idle', blocking: false, running: false};
   let activeAnchor: string | null = null;
+  let pointerRegion: string | null = null;
 
   // Registered DOM. `avatars` and `automatics` are keyed by session id; the rest
   // are singletons, because the rail has exactly one of each.
@@ -316,6 +317,23 @@ export function createRailController(options: RailControllerOptions = {}) {
     placeAutomatics();
   }
 
+  function enterRegion(id: string, region: 'avatar' | 'card'): boolean {
+    const key = `${region}:${id}`;
+    if (pointerRegion === key) return model.items.some(item => item.id === id);
+    pointerRegion = key;
+    // Reconcile first: a delayed WebView timer must not grant an expired row
+    // another ten seconds merely because the pointer woke the window.
+    model.refresh();
+    const row = model.items.find(item => item.id === id);
+    if (row?.openedUntil && model.resetOpened(id, row.session.roundId)) sync();
+    else if (!row) sync();
+    return !!row;
+  }
+
+  function leaveRegion(id: string, region: 'avatar' | 'card') {
+    if (pointerRegion === `${region}:${id}`) pointerRegion = null;
+  }
+
   function showError(error: unknown, id: string | null = null) {
     activeAnchor = id;
     const message = error instanceof Error ? error.message : error;
@@ -379,6 +397,8 @@ export function createRailController(options: RailControllerOptions = {}) {
     const items = model.items;
     if (contextMenu && !items.some(item => item.id === contextMenu!.id && item.session.roundId === contextMenu!.roundId)) contextMenu = null;
     const ids = new Set(items.map(item => item.id));
+    if (card && !ids.has(card.id)) hide();
+    if (pointerRegion && !ids.has(pointerRegion.slice(pointerRegion.indexOf(':') + 1))) pointerRegion = null;
     let restingId: string | undefined;
     if (!items.length && avatars.size) {
       // Retain appearance only, never a finished session or its interaction.
@@ -432,6 +452,8 @@ export function createRailController(options: RailControllerOptions = {}) {
 
   const unsubscribeWindowActive = onDesktopWindowActive(value => {
     inactive = !value;
+    model.refresh();
+    sync();
     if (!value && contextMenu && !contextMenu.busy) contextMenu = null;
     applyContainer();
     state = build();
@@ -446,11 +468,15 @@ export function createRailController(options: RailControllerOptions = {}) {
     const avatar = target?.closest('.desktop-avatar') as HTMLElement | null;
     const id = avatar?.dataset.sessionId;
     if (avatar && id) {
+      if (!enterRegion(id, 'avatar')) return;
       if (nativeHover !== id) pointAvatar(avatars.get(nativeHover ?? ''), null);
       pointAvatar(avatar, point);
       if (nativeHover !== id) { nativeHover = id; show(id); }
       else clearTimeout(hideTimer);
     } else {
+      const cardId = target?.closest('.desktop-card') && card?.id;
+      if (cardId) enterRegion(cardId, 'card');
+      else pointerRegion = null;
       pointAvatar(avatars.get(nativeHover ?? ''), null);
       nativeHover = null;
       if (target?.closest('.desktop-card')) clearTimeout(hideTimer);
@@ -604,12 +630,12 @@ export function createRailController(options: RailControllerOptions = {}) {
       retireGhost(element, () => { departing = departing.filter(ghost => ghost.key !== key); publish(); });
     },
 
-    hoverAvatar(id: string) { show(id); },
-    leaveAvatar() { scheduleHide(); },
+    hoverAvatar(id: string) { if (enterRegion(id, 'avatar')) show(id); },
+    leaveAvatar(id?: string) { if (id) leaveRegion(id, 'avatar'); scheduleHide(); },
     pointerMove(id: string, point: {x: number; y: number}) { pointAvatar(avatars.get(id), point); },
     clearPointer(id: string) { pointAvatar(avatars.get(id), null); },
     focusAvatar(id: string) { show(id); },
-    clickAvatar(id: string) { const item = model.items.find(row => row.id === id); if (item) void open(item); },
+    clickAvatar(id: string) { model.refresh(); sync(); const item = model.items.find(row => row.id === id); if (item) void open(item); },
 
     openContextMenu(id: string, x: number, y: number) {
       const item = model.items.find(row => row.id === id);
@@ -658,7 +684,8 @@ export function createRailController(options: RailControllerOptions = {}) {
     },
     toggleExpanded() { expanded = !expanded; hide(); publish(); },
 
-    holdCard() { clearTimeout(hideTimer); },
+    holdCard() { if (card?.id) enterRegion(card.id, 'card'); clearTimeout(hideTimer); },
+    leaveCard() { if (card?.id) leaveRegion(card.id, 'card'); scheduleHide(); },
     /** Scrolling the list moves every placed surface without changing any data. */
     onListScroll() {
       if (activeId && card && cardEl) {

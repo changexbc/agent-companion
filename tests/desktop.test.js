@@ -276,6 +276,37 @@ test('opened completed rail session survives viewed updates for ten seconds, rep
  time=11999; model.refresh(); assert.equal(model.items.length,1);
  time=12000; model.refresh(); assert.equal(model.items.length,0);
 });
+test('clicked aborted round expires offline, while hover entry resets only its live deadline', () => {
+ let time=2000; const model=connected({now:()=>time});
+ model.accept(snapshot([session(1),session(2)]));
+ model.accept(snapshot([session(1,'aborted',{endedAt:time}),session(2,'done',{endedAt:time})]));
+ assert.equal(model.items[0].openedUntil,undefined);
+ assert.equal(model.resetOpened('codex:1','r1'),false,'ordinary hover has no countdown');
+ model.retainOpened('codex:1','r1');
+ assert.equal(model.nextExpiry,12000);
+ time=5000; assert.equal(model.resetOpened('codex:1','r1'),true);
+ assert.equal(model.items[0].openedUntil,15000);
+ assert.equal(model.resetOpened('codex:2','r1'),false,'other row is unaffected');
+ model.connect('offline');
+ assert.equal(model.nextExpiry,15000,'the clicked deadline stays scheduled offline');
+ time=15001; assert.equal(model.resetOpened('codex:1','r1'),false,'an expired row cannot restart');
+ model.refresh();
+ assert.deepEqual(model.items.map(item=>item.id),['codex:2']);
+ model.connect('connected');
+ assert.deepEqual(model.items.map(item=>item.id),['codex:2'],'reconnection cannot resurrect the expired round');
+ model.accept(snapshot([session(1,'running',{roundId:'r2'}),session(2,'done',{endedAt:2000})]));
+ assert.deepEqual(model.items.map(item=>item.id),['codex:2','codex:1'],'a new round remains available');
+});
+test('clicked terminal deadline remains authoritative when its host exits', () => {
+ let time=2000; const model=connected({now:()=>time});
+ model.accept(snapshot([session(1)]));
+ model.accept(snapshot([session(1,'aborted',{endedAt:time})]));
+ model.retainOpened('codex:1','r1');
+ model.accept({...snapshot([]),sources:{codex:{state:'exited'}}});
+ assert.equal(model.nextExpiry,12000);
+ time=9000;model.refresh();assert.equal(model.items.length,1);
+ time=12000;model.refresh();assert.equal(model.items.length,0);
+});
 test('a new active round cancels pending opened-session removal', () => {
  let time=2000; const model=connected({now:()=>time});
  model.accept(snapshot([session(1)])); model.accept(snapshot([session(1,'done')]));

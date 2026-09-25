@@ -108,17 +108,30 @@ export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOL
       // result briefly, then retire the row. This must run before the health
       // short-circuit below or an unhealthy source would freeze the row.
       if (online && state === 'exited') {
+        if (next && (!TERMINAL.has(next.status) || row.session.roundId !== next.roundId)) row.openedUntil = null;
         if (next) row.session = next;
         row.offline = true;
+        if (row.openedUntil && TERMINAL.has(row.session.status) && row.openedUntil <= now()) {
+          closeRound(id, row.session.roundId, row.session.endedAt ?? row.session.updatedAt ?? now());
+          rows.delete(id);
+          continue;
+        }
         row.hostGoneUntil ??= now() + HOST_EXIT_GRACE_MS;
-        row.expiresAt = row.hostGoneUntil;
-        if (!next || row.hostGoneUntil <= now()) rows.delete(id);
+        row.expiresAt = row.openedUntil ?? row.hostGoneUntil;
+        if (!row.openedUntil && (!next || row.hostGoneUntil <= now())) rows.delete(id);
         continue;
       }
       row.hostGoneUntil = null;
       if (next && (!TERMINAL.has(next.status) || row.session.roundId !== next.roundId)) row.openedUntil = null;
       if (next) row.session = next;
       row.offline = !healthy;
+      // An explicitly opened terminal round has its own wall-clock deadline.
+      // Connection loss must not freeze it after opening Codex takes focus.
+      if (row.openedUntil && TERMINAL.has(row.session.status) && row.openedUntil <= now()) {
+        closeRound(id, row.session.roundId, row.session.endedAt ?? row.session.updatedAt ?? now());
+        rows.delete(id);
+        continue;
+      }
       if (!next || !healthy) continue;
       if (TERMINAL.has(next.status)) {
         if (!row.openedUntil && next.viewedRoundId != null && next.viewedRoundId === next.roundId) {
@@ -175,6 +188,13 @@ export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOL
       row.openedUntil ??= now() + OPENED_HOLD_MS;
       row.expiresAt = row.openedUntil;
     },
+    resetOpened(id: string, roundId: string) {
+      const row = rows.get(id);
+      if (!row || !TERMINAL.has(row.session.status) || row.session.roundId !== roundId || !row.openedUntil || row.openedUntil <= now()) return false;
+      row.openedUntil = now() + OPENED_HOLD_MS;
+      row.expiresAt = row.openedUntil;
+      return true;
+    },
     cancelOpened(id: string, roundId: string) {
       const row = rows.get(id);
       if (row?.session.roundId === roundId) { row.openedUntil = null; reconcile(); }
@@ -198,7 +218,7 @@ export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOL
     get items(): RailItem[] { return [...rows].map(([id, row]) => ({ id, ...row })); },
     get nextExpiry(): number | null {
       const times: number[] = [];
-      for (const row of rows.values()) if (row.expiresAt && (!row.offline || row.hostGoneUntil)) times.push(row.expiresAt);
+      for (const row of rows.values()) if (row.expiresAt && (!row.offline || row.hostGoneUntil || row.openedUntil)) times.push(row.expiresAt);
       if (overflow) times.push(overflow.until);
       return times.length ? Math.min(...times) : null;
     },

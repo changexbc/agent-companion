@@ -104,7 +104,7 @@ export function RailApp({controller, container}: {controller: RailController; co
           aria-label="会话信息"
           ref={element => controller.attach.card(element)}
           onPointerEnter={() => controller.holdCard()}
-          onPointerLeave={() => controller.leaveAvatar()}
+          onPointerLeave={() => controller.leaveCard()}
         >
           {(() => {
             const row = rows.find(candidate => candidate.item.id === state.card!.id);
