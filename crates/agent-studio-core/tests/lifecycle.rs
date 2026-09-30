@@ -1232,3 +1232,274 @@ fn codex_async_questions_never_notify_or_clear_synchronous_waits() {
     hook(&mut c, "PostToolUse", "functions.request_user_input", "sync");
     assert_eq!(c.hub.sessions["codex:x"]["status"], "running");
 }
+
+// ---- DSH（DeepSeek Harness）来源 ----
+
+/// 写一帧 zstd 追加到会话日志，模拟 dsh 的刷盘方式。
+fn write_dsh_frame(path: &std::path::Path, ev: &serde_json::Value, append: bool) {
+    use std::io::Write;
+    let payload = format!("{ev}\n");
+    let frame = ruzstd::encoding::compress_to_vec(
+        payload.as_bytes(),
+        ruzstd::encoding::CompressionLevel::Fastest,
+    );
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(append)
+        .truncate(!append)
+        .open(path)
+        .unwrap();
+    file.write_all(&frame).unwrap();
+}
+
+/// 造一个假 DSH 数据目录，并把 dsh 来源指过去。
+fn dsh_collector(home: &Home) -> (Collector, PathBuf, PathBuf) {
+    let root = home.0.join("dsh");
+    let dir = root
+        .join("sessions")
+        .join("--tmp--演示项目--")
+        .join("session-abc");
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("session.v4.jsonl.zstd");
+    let mut s = settings::defaults();
+    for id in settings::SOURCES {
+        s["sources"][id]["enabled"] = json!(id == "dsh");
+    }
+    s["sources"]["dsh"]["path"] = json!(root.to_str().unwrap());
+    atomic_json(&home.0.join(".agent-studio/settings.json"), &s).unwrap();
+    (Collector::new(home.0.clone()).unwrap(), log, dir)
+}
+
+#[test]
+fn dsh_log_folds_turn_lifecycle_into_hub() {
+    let home = Home::new();
+    let (mut c, log, _dir) = dsh_collector(&home);
+
+    // 头部属于历史：首次扫描只登记到末尾，不恢复历史会话。
+    write_dsh_frame(
+        &log,
+        &json!({"type":"session","version":4,"id":"session-abc","createdAt":1000,
+                "cwd":"/tmp/演示项目","delegationDepth":0}),
+        false,
+    );
+    c.poll_dsh().unwrap();
+    assert!(c.dsh.primed);
+    assert!(
+        !c.hub.sessions.contains_key("dsh:session-abc"),
+        "历史会话不应被恢复"
+    );
+
+    let scan = |c: &mut Collector| {
+        c.dsh.last_scan = 0; // 绕过节流
+        c.poll_dsh().unwrap();
+    };
+
+    write_dsh_frame(&log, &json!({"type":"turn/start","seq":0,"time":2000,"data":{"turn":1}}), true);
+    scan(&mut c);
+    // 身份来自头部那一帧：不恢复历史内容，但仍要知道会话是谁。
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["status"], "running");
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["cwd"], "/tmp/演示项目");
+
+    write_dsh_frame(
+        &log,
+        &json!({"type":"step/start","seq":1,"time":2100,"data":{"turn":1,"step":1}}),
+        true,
+    );
+    write_dsh_frame(
+        &log,
+        &json!({"type":"tool/call","seq":2,"time":2200,"data":{"turn":1,"step":1,"callId":"c1","name":"bash"}}),
+        true,
+    );
+    scan(&mut c);
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["steps"].as_array().unwrap().len(), 2);
+
+    // 权限确认 → 等待；解除 → 回到运行。
+    write_dsh_frame(
+        &log,
+        &json!({"type":"approval/asked","seq":3,"time":2300,"data":{"kind":"permission"}}),
+        true,
+    );
+    scan(&mut c);
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["status"], "wait");
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["pending"][0]["tool"], "approval");
+
+    write_dsh_frame(
+        &log,
+        &json!({"type":"approval/decided","seq":4,"time":2400,"data":{"kind":"permission"}}),
+        true,
+    );
+    scan(&mut c);
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["status"], "running");
+    assert_eq!(
+        c.hub.sessions["dsh:session-abc"]["pending"],
+        json!([]),
+        "解除等待后不应留下待办"
+    );
+
+    // 收尾：completed → done；error → error。
+    write_dsh_frame(
+        &log,
+        &json!({"type":"turn/end","seq":5,"time":2500,"data":{"turn":1,"reason":{"kind":"completed"}}}),
+        true,
+    );
+    scan(&mut c);
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["status"], "done");
+
+    write_dsh_frame(
+        &log,
+        &json!({"type":"turn/start","seq":6,"time":2600,"data":{"turn":2}}),
+        true,
+    );
+    write_dsh_frame(
+        &log,
+        &json!({"type":"turn/end","seq":7,"time":2700,"data":{"turn":2,"reason":{"kind":"error"}}}),
+        true,
+    );
+    scan(&mut c);
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["status"], "error");
+}
+
+#[test]
+fn dsh_dangling_session_without_lock_is_aborted() {
+    let home = Home::new();
+    let (mut c, log, _dir) = dsh_collector(&home);
+    c.poll_dsh().unwrap(); // prime：历史不看
+    write_dsh_frame(&log, &json!({"type":"turn/start","seq":0,"time":2000,"data":{"turn":1}}), true);
+    c.dsh.last_scan = 0;
+    c.poll_dsh().unwrap();
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["status"], "running");
+
+    // 日志停了、也没有活进程持锁：按中断收尾，不留幽灵「进行中」。
+    // 阈值取 -1 而不是 0：刚写完的日志静默可能正好是 0ms，0 > 0 不成立。
+    c.dsh.stale_after_ms = -1;
+    c.dsh.last_scan = 0;
+    c.poll_dsh().unwrap();
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["status"], "aborted");
+
+    // 已经收尾过就不再重复补发。
+    let events = c.hub.snapshot()["events"].as_array().unwrap().len();
+    c.dsh.last_scan = 0;
+    c.poll_dsh().unwrap();
+    assert_eq!(c.hub.snapshot()["events"].as_array().unwrap().len(), events);
+}
+
+#[cfg(unix)]
+#[test]
+fn dsh_session_held_by_a_live_process_is_not_aborted() {
+    let home = Home::new();
+    let (mut c, log, dir) = dsh_collector(&home);
+    c.poll_dsh().unwrap();
+    write_dsh_frame(&log, &json!({"type":"turn/start","seq":0,"time":2000,"data":{"turn":1}}), true);
+    c.dsh.last_scan = 0;
+    c.poll_dsh().unwrap();
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["status"], "running");
+
+    // 有活进程持有 session.lock：即使静默也不得判定为中断。
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(dir.join("session.lock"))
+        .unwrap();
+    lock.lock().unwrap();
+    c.dsh.stale_after_ms = -1;
+    c.dsh.last_scan = 0;
+    c.poll_dsh().unwrap();
+    assert_eq!(c.hub.sessions["dsh:session-abc"]["status"], "running");
+    assert_eq!(
+        c.hub.sources["dsh"]["state"], "ok",
+        "来源健康行必须发布，否则悬浮窗会隐藏整个来源"
+    );
+}
+
+#[test]
+fn dsh_source_is_unavailable_without_a_data_directory() {
+    let home = Home::new();
+    let (mut c, _log, _dir) = dsh_collector(&home);
+    std::fs::remove_dir_all(home.0.join("dsh/sessions")).unwrap();
+    c.poll_dsh().unwrap();
+    assert_eq!(c.hub.sources["dsh"]["state"], "unavailable");
+}
+
+#[test]
+fn dsh_title_is_recovered_from_history_when_a_primed_session_becomes_active() {
+    let home = Home::new();
+    let (mut c, log, _dir) = dsh_collector(&home);
+    // 历史里有标题，但首扫跳过历史（与 WorkBuddy 来源同口径）。
+    write_dsh_frame(
+        &log,
+        &json!({"type":"session","version":4,"id":"session-abc","createdAt":1000,"cwd":"/tmp/演示项目"}),
+        false,
+    );
+    write_dsh_frame(
+        &log,
+        &json!({"type":"session/title","seq":1,"time":1100,"data":{"title":"给 DSH 做状态监听"}}),
+        true,
+    );
+    c.poll_dsh().unwrap();
+    assert!(!c.hub.sessions.contains_key("dsh:session-abc"), "历史会话不应被恢复");
+
+    // 会话重新活动：标题必须从历史补回来，否则卡片只能退回显示项目名。
+    write_dsh_frame(&log, &json!({"type":"turn/start","seq":2,"time":2000,"data":{"turn":1}}), true);
+    c.dsh.last_scan = 0;
+    c.poll_dsh().unwrap();
+    assert_eq!(
+        c.hub.sessions["dsh:session-abc"]["title"],
+        "给 DSH 做状态监听"
+    );
+
+    // 只回扫一次，不重复打扰。
+    c.dsh.last_scan = 0;
+    c.poll_dsh().unwrap();
+    assert_eq!(
+        c.hub.sessions["dsh:session-abc"]["title"],
+        "给 DSH 做状态监听"
+    );
+}
+
+#[test]
+fn dsh_switching_the_data_path_does_not_replay_history() {
+    let home = Home::new();
+    let (mut c, log, _dir) = dsh_collector(&home);
+    // 旧路径下先攒一条历史，首扫会跳过它。
+    write_dsh_frame(
+        &log,
+        &json!({"type":"session","version":4,"id":"session-abc","createdAt":1000,"cwd":"/tmp/演示项目"}),
+        false,
+    );
+    c.poll_dsh().unwrap();
+    assert!(!c.hub.sessions.contains_key("dsh:session-abc"));
+
+    // 另建一个根目录，里面已经躺着一条**完整的历史**会话。
+    let other = home.0.join("dsh2");
+    let dir2 = other
+        .join("sessions")
+        .join("--tmp--另一个项目--")
+        .join("session-old");
+    std::fs::create_dir_all(&dir2).unwrap();
+    let log2 = dir2.join("session.v4.jsonl.zstd");
+    write_dsh_frame(
+        &log2,
+        &json!({"type":"session","version":4,"id":"session-old","createdAt":1000,"cwd":"/tmp/另一个项目"}),
+        false,
+    );
+    write_dsh_frame(&log2, &json!({"type":"turn/start","seq":0,"time":1100,"data":{"turn":1}}), true);
+    write_dsh_frame(
+        &log2,
+        &json!({"type":"turn/end","seq":1,"time":1200,"data":{"turn":1,"reason":{"kind":"completed"}}}),
+        true,
+    );
+
+    // 在同一条 watch 上把路径切过去（与运行时改设置的行为一致，不重建 Collector）。
+    c.settings["sources"]["dsh"]["path"] = json!(other.to_str().unwrap());
+    c.dsh.last_scan = 0;
+    c.poll_dsh().unwrap();
+
+    // 换路径＝换数据源：新根下已有的历史会话不能被当成「新出现的会话」全量恢复，
+    // 否则一次会刷出几百个历史会话。
+    assert!(
+        !c.hub.sessions.contains_key("dsh:session-old"),
+        "切换数据路径后不得恢复另一份数据源的历史会话"
+    );
+}

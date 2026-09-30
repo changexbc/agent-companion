@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-pub const SOURCES: [&str; 4] = ["codex", "workbuddy", "codebuddy-ide", "codeg"];
+pub const SOURCES: [&str; 5] = ["codex", "workbuddy", "codebuddy-ide", "codeg", "dsh"];
 pub fn defaults() -> Value {
     let mut sources: serde_json::Map<String, Value> = SOURCES
         .iter()
@@ -18,6 +18,10 @@ pub fn validate(v: &Value) -> Result<Value, String> {
         return Err("配置版本无效".into());
     }
     for id in SOURCES {
+        // 新增来源时老配置里没有这一项，沿用默认值，不要把整份配置判定为无效。
+        if v["sources"][id].is_null() {
+            continue;
+        }
         let p = v["sources"][id]["path"].as_str().ok_or("Agent 路径无效")?;
         if !v["sources"][id]["enabled"].is_boolean()
             || p.len() > 2048
@@ -119,8 +123,20 @@ pub fn paths(home: &Path, v: &Value, source: &str) -> Vec<PathBuf> {
         ]
         .map(|p| home.join(p))
         .to_vec(),
+        "dsh" => vec![dsh_root(home)],
         _ => vec![home.join(".codebuddy")],
     }
+}
+
+/// DSH 数据根目录：优先 `DSH_HOME`，否则 `~/.dsh`。
+///
+/// `~/.dsh` 通常是指向 `~/Library/Application Support/dsh-desktop/harness` 的符号链接，
+/// 但按路径读取天然穿透符号链接，这里不需要额外解析。
+pub fn dsh_root(home: &Path) -> PathBuf {
+    std::env::var_os("DSH_HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| home.join(".dsh"))
 }
 
 #[cfg(test)]

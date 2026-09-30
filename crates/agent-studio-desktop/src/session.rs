@@ -29,6 +29,7 @@ fn app_for_scheme(scheme: &str) -> Option<(&'static str, &'static str)> {
         "workbuddy" => ("WorkBuddy.app", "com.tencent.workbuddy.mac"),
         "codebuddy" => ("CodeBuddy.app", "com.tencent.codebuddy"),
         "codebuddycn" => ("CodeBuddy CN.app", "com.tencent.codebuddycn"),
+        "dsh" => ("DeepSeek Harness.app", "com.deepseek.dsh"),
         _ => return None,
     })
 }
@@ -105,8 +106,15 @@ fn session_target(url: &str) -> Result<SessionTarget, String> {
             return Ok(SessionTarget::App(app));
         }
     }
-    if !supported
-        || parsed.path().len() < 2
+    // DSH 的 App 只认裸 `dsh://open`（聚焦主窗口），没有会话级深链，
+    // 所以这个链接没有 path 是正常的，不能按「path 太短」拒掉。
+    let dsh_open = parsed.scheme() == "dsh"
+        && parsed.host_str() == Some("open")
+        && matches!(parsed.path(), "" | "/")
+        && parsed.query().is_none()
+        && parsed.fragment().is_none();
+    if (!supported && !dsh_open)
+        || (!dsh_open && parsed.path().len() < 2)
         || !parsed.username().is_empty()
         || parsed.password().is_some()
     {
@@ -451,6 +459,23 @@ mod tests {
         match session_target(value).unwrap() {
             SessionTarget::Link(url) => url,
             _ => panic!("expected session link"),
+        }
+    }
+    #[test]
+    fn dsh_jump_only_focuses_its_window() {
+        // DSH 的 App 只注册了裸 `dsh://open`（聚焦主窗口），没有会话级深链，
+        // 所以这一条链接是「到应用、不到会话」。多带任何东西都必须拒掉。
+        assert_eq!(link("dsh://open").scheme(), "dsh");
+        assert_eq!(link("dsh://open/").host_str(), Some("open"));
+        for value in [
+            "dsh://open/session-1",
+            "dsh://session/abc",
+            "dsh://open?x=1",
+            "dsh://other",
+            "dsh://",
+            "dsh://user@open",
+        ] {
+            assert!(session_target(value).is_err(), "{value} 不该被受理");
         }
     }
     #[test]

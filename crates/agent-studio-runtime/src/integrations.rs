@@ -202,8 +202,37 @@ pub fn install_hooks(c: &Collector) -> Result<(), String> {
         Err(errors.join("；"))
     }
 }
+/// 纯日志来源：不装 Hooks，也没有 Webhook，没有可安装的接入动作。
+///
+/// DSH 把会话事件直接写在本地日志里，我们读日志即可，不存在「接入/卸载」这回事，
+/// 所以它不出现在接入管理矩阵中（那套开关对它是空操作）。
+/// 它的监听开关在「Agent 监听与接入」那一栏，和 Codex 等来源并列。
+pub fn hookless(source: &str) -> bool {
+    matches!(source, "dsh")
+}
 pub fn get(c: &Collector) -> Value {
-    let sources: Vec<_> = SOURCES.iter().map(|source| {
+    let sources: Vec<_> = SOURCES
+        .iter()
+        .map(|source| {
+        // 纯日志来源没有可安装的接入：如实报告「读日志」而不是「未安装 Hooks」，
+        // 否则界面上会出现一个永远装不上的接入项。
+        if hookless(source) {
+            let root = c.paths(source).into_iter().next();
+            let installed = root.as_ref().is_some_and(|r| r.join("sessions").is_dir());
+            return json!({
+                "source": source,
+                "kind": "log",
+                "status": if installed { "log_only" } else { "unavailable" },
+                "message": if installed {
+                    "已接入：直接读取本地会话日志，无需安装 Hooks"
+                } else {
+                    "未检测到会话目录，先运行一次该 Agent"
+                },
+                "locations": root.into_iter().collect::<Vec<_>>(),
+                "automatic": false,
+                "lastEventAt": c.last_hook_at.get(*source),
+            });
+        }
         let locations = if *source == "codeg" { c.paths(source) } else { files(c,source) };
         let result = if *source == "codeg" { c.inspect_codeg_webhook() } else {
             (|| {
@@ -234,6 +263,9 @@ pub fn set(c: &mut Collector, p: &Value) -> Result<Value, String> {
         Some("uninstall") => false,
         _ => return Err("未知接入操作".into()),
     };
+    if hookless(source) {
+        return Err("该来源直接读取本地会话日志，没有可安装或卸载的接入".into());
+    }
     if source == "codeg" && install && c.settings["sources"][source]["enabled"] != true {
         return Err("请先开启 Codeg 监听，再注册 Webhook".into());
     }
@@ -284,7 +316,9 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .filter(|r| r["source"] != "codeg")
+            // 接入断言只针对需要安装 Hooks / 注册 Webhook 的来源；
+            // 纯日志来源（kind=log）没有可卸载的接入。
+            .filter(|r| r["source"] != "codeg" && r["kind"] != "log")
             .all(|r| r["status"] == "not_installed" && r["automatic"] == false));
         set(
             &mut restarted,

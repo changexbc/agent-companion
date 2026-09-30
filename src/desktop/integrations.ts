@@ -2,13 +2,13 @@ import { desktopCommand, hostFetch, isDesktop } from './host.js';
 import type { IntegrationAction, IntegrationStatus, Integrations } from '../types/integrations.js';
 import type { SourceId } from '../types/settings.js';
 
-const sourceIds = ['codex', 'workbuddy', 'codebuddy-ide', 'codeg'];
+const sourceIds = ['codex', 'workbuddy', 'codebuddy-ide', 'codeg', 'dsh'];
 function isStatus(value: unknown): value is IntegrationStatus {
   if (!value || typeof value !== 'object') return false;
   const item = value as Record<string, unknown>;
   return typeof item.source === 'string' && sourceIds.includes(item.source)
-    && ['hooks', 'webhook'].includes(String(item.kind))
-    && ['installed', 'not_installed', 'partial', 'error', 'unavailable', 'pending'].includes(String(item.status))
+    && ['hooks', 'webhook', 'log'].includes(String(item.kind))
+    && ['installed', 'not_installed', 'partial', 'error', 'unavailable', 'pending', 'log_only'].includes(String(item.status))
     && typeof item.message === 'string' && typeof item.automatic === 'boolean'
     && Array.isArray(item.locations) && item.locations.every(path => typeof path === 'string')
     && (item.lastEventAt == null || (typeof item.lastEventAt === 'number' && Number.isFinite(item.lastEventAt)));

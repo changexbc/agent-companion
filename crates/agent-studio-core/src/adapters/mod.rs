@@ -3,6 +3,7 @@ mod codeg_stream;
 pub use codeg::{CodegHooks, CODEG_EVENTS, merge_codeg_webhooks};
 mod codex;
 pub mod custom;
+pub mod dsh;
 mod ide;
 pub use ide::{
     codebuddy_edition, codebuddy_settings_files, merge_codebuddy_ide_hooks,
@@ -85,6 +86,8 @@ pub struct Collector {
     pub custom_engine: crate::custom::Engine,
     pub custom_diagnostics: std::collections::VecDeque<Value>,
     pub custom_stats: HashMap<String, (Option<i64>, Option<i64>)>,
+    /// DSH 会话日志轮询状态（纯日志驱动，DSH 侧不需要装任何东西）。
+    pub dsh: dsh::DshWatch,
 }
 impl Collector {
     pub fn new(home: PathBuf) -> Result<Self, String> {
@@ -132,6 +135,7 @@ impl Collector {
             ide_presence: crate::host_process::HostPresence::for_host("codebuddy-ide"),
             vscode_presence: crate::host_process::HostPresence::for_host("vscode"),
             codex_read_state: Default::default(),
+            dsh: Default::default(),
         };
         c.restore_codex_recovery();
         Ok(c)
@@ -150,6 +154,7 @@ impl Collector {
             let result = match id {
                 "codex" => self.poll_codex(),
                 "workbuddy" => self.poll_workbuddy(),
+                "dsh" => self.poll_dsh(),
                 _ => self.poll_ide(),
             };
             if let Err(e) = result {

@@ -4,7 +4,7 @@
  * the shape it must produce; the JS file is checked against it with `@ts-check`.
  */
 
-export type SourceId = 'codex' | 'workbuddy' | 'codebuddy-ide' | 'codeg';
+export type SourceId = 'codex' | 'workbuddy' | 'codebuddy-ide' | 'codeg' | 'dsh';
 
 export type AvatarStyle = 'animal' | 'bot';
 export type RailSize = 'small' | 'medium' | 'standard';

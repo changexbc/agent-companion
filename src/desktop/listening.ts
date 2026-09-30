@@ -1,7 +1,7 @@
 import { hostFetch } from './host.js';
 import type { Settings, SourceConfig, SourceId } from '../types/settings.js';
 
-export const agents: readonly (readonly [SourceId, string])[] = [['codex', 'Codex'], ['workbuddy', 'WorkBuddy'], ['codebuddy-ide', 'CodeBuddy'], ['codeg', 'Codeg']];
+export const agents: readonly (readonly [SourceId, string])[] = [['codex', 'Codex'], ['workbuddy', 'WorkBuddy'], ['codebuddy-ide', 'CodeBuddy'], ['codeg', 'Codeg'], ['dsh', 'DSH']];
 
 const knownIds = agents.map(([id]) => id as string);
 

@@ -121,3 +121,10 @@ test('a missing or unknown hostKind behaves exactly like a CodeBuddy IDE session
  }
  assert.equal(agentSessionLink({source:'codebuddy-ide',hostKind:'codebuddy-ide'}),'/api/open-session?source=codebuddy-ide&edition=international');
 });
+
+test('DSH links focus the harness window because the app has no session deep link',()=>{
+  // 实测 DSH 的 app.asar 里只处理 `dsh://open` / `dsh://open/`（focusPrimaryWindow），
+  // 没有带会话 id 的形态，所以这条链接只能到应用、到不了具体会话。
+  assert.equal(agentSessionLink({source:'dsh',sessionId:'session-abc'}),'dsh://open');
+  assert.equal(agentSessionLink({source:'dsh',sessionId:' '}),null);
+});

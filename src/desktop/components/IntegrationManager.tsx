@@ -11,7 +11,7 @@ import type { IntegrationAction, IntegrationStatus } from '@/types/integrations.
 
 const labels: Record<IntegrationStatus['status'], string> = {
   installed: '已接入', not_installed: '未接入', partial: '需要修复',
-  error: '接入失败', unavailable: '暂不可用', pending: '待处理',
+  error: '接入失败', unavailable: '暂不可用', pending: '待处理', log_only: '已接入',
 };
 
 export function IntegrationManager({disabled, acquire, release, enabled, onEnabledChange, refreshRevision = 0}: {
@@ -129,8 +129,8 @@ export function IntegrationManager({disabled, acquire, release, enabled, onEnabl
               </div>}
             </div>
             <div className="integration-detail-footer">
-            <p className="integration-policy">{webhook ? '关闭监听会注销 Webhook。' : '关闭监听会保留 Hooks。'}{item.automatic ? '卸载后不会自动安装。' : '已关闭自动接入。'}</p>
-            <div className="integration-actions">
+            <p className="integration-policy">{webhook ? '关闭监听会注销 Webhook。' : item.kind === 'log' ? '该来源直接读取本地会话日志，无需安装 Hooks。' : '关闭监听会保留 Hooks。'}{item.kind === 'log' ? '' : item.automatic ? '卸载后不会自动安装。' : '已关闭自动接入。'}</p>
+            {item.kind !== 'log' && <div className="integration-actions">
               <Button className="integration-repair" type="button" variant="outline" disabled={disabled || active !== null || loading} onClick={() => void run({source, action: 'install'})}>
                 {active === `${source}-install` ? '正在处理…' : webhook ? (item.status === 'installed' ? '重新注册' : '注册 / 重试') : item.status === 'installed' || item.status === 'partial' ? '修复 Hooks' : '安装 Hooks'}
               </Button>
@@ -150,7 +150,7 @@ export function IntegrationManager({disabled, acquire, release, enabled, onEnabl
                   </div>
                 </AlertDialogContent>
               </AlertDialog>
-            </div>
+            </div>}
             </div>
           </div> : <p className="integration-detail">{loading ? '正在检查接入状态…' : '暂时无法获取接入信息，请刷新重试。监听开关仍可使用。'}</p>}
         </CollapsibleContent>
