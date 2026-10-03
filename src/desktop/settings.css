@@ -124,6 +124,7 @@ fieldset:disabled button,fieldset:disabled select,fieldset:disabled input{cursor
 .settings-group{border:1px solid #dfe7df;border-radius:12px;padding:0 12px;background:rgba(255,255,255,.22)}
 .settings-group>.row:last-child{border-bottom:0}
 .settings-group .row{min-height:64px}
+.row small[data-error=true]{color:#9a6438}
 .agent-card .integration-heading{height:32px;margin-bottom:8px}
 .settings-save-feedback{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}
 .settings-save-feedback p{font-size:10px;color:#8a978e;line-height:1.6;margin:0;overflow-wrap:anywhere}

@@ -4,6 +4,7 @@ mod integration_folder;
 mod background_cursor;
 #[cfg(target_os = "macos")]
 mod panel;
+mod rail_position;
 mod rail_settings;
 mod session;
 use agent_studio_runtime::Client;
@@ -11,9 +12,10 @@ use serde_json::{json, Value};
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Condvar, Mutex,
     },
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_notification::NotificationExt;
@@ -151,6 +153,25 @@ fn set_hit_regions(
     Ok(())
 }
 #[tauri::command]
+async fn rail_reset_position(app: tauri::AppHandle) -> Result<(), String> {
+    // One main-thread read plus a ~200 ms animated move would stall the UI if
+    // run inline; hand both to the blocking pool instead.
+    tauri::async_runtime::spawn_blocking(move || {
+        let rail = app.get_webview_window(RAIL).ok_or("悬浮窗未开启")?;
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let read_rail = rail.clone();
+        app.run_on_main_thread(move || {
+            let _ = tx.send(rail_position::reset_plan(&read_rail));
+        })
+        .map_err(|e| e.to_string())?;
+        let target = rx.recv().map_err(|e| e.to_string())??;
+        rail_position::glide(&rail, target);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
 fn close_settings(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(SETTINGS) {
         w.close().map_err(|e| e.to_string())?;
@@ -236,6 +257,24 @@ fn position_path(app: &tauri::AppHandle) -> Option<PathBuf> {
         .ok()
         .map(|p| p.join("agent-studio-rail-position.json"))
 }
+/// Rail move timestamps in milliseconds: `last` is written by
+/// `WindowEvent::Moved`, `checked` remembers the value a correction pass has
+/// already handled so one settled position is processed once.
+struct MoveWatch {
+    last: AtomicU64,
+    checked: AtomicU64,
+}
+impl MoveWatch {
+    fn new() -> Self {
+        Self { last: AtomicU64::new(0), checked: AtomicU64::new(0) }
+    }
+    fn touch(&self) {
+        self.last.store(now_ms(), Ordering::Release);
+    }
+}
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
 pub fn init(config: Config) -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("agent-studio")
         .on_window_ready(|window| {
@@ -259,6 +298,7 @@ pub fn init(config: Config) -> tauri::plugin::TauriPlugin<tauri::Wry> {
             set_hit_regions,
             rail_settings::rail_settings_get,
             rail_settings::rail_settings_set,
+            rail_reset_position,
             close_settings,
             open_view,
             session::open_session_url,
@@ -289,6 +329,17 @@ pub fn init(config: Config) -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 api.prevent_close();
                 if let Some(w) = app.get_webview_window(RAIL) {
                     let _ = w.hide();
+                }
+            }
+            // Native drags run a modal loop; the worker thread only reads this
+            // timestamp and acts once the moves have gone quiet.
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Moved(_),
+                ..
+            } if label == RAIL => {
+                if let Some(watch) = app.try_state::<Arc<MoveWatch>>() {
+                    watch.touch();
                 }
             }
             tauri::RunEvent::Exit => {
@@ -334,6 +385,53 @@ fn start(app: &tauri::AppHandle, config: Config) -> Result<(), Box<dyn std::erro
     app.manage(state.clone());
     if enabled {
         create_rail(app, &config)?;
+    }
+    // Correct a rail that ended up outside every work area (dragged off screen,
+    // or its monitor was unplugged). The 500 ms of silence keeps the write out
+    // of the platform's modal drag loop, and the swap makes sure each settled
+    // position runs through `plan` exactly once.
+    {
+        let watch = Arc::new(MoveWatch::new());
+        app.manage(watch.clone());
+        let app = app.clone();
+        let state = state.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            if state.stop.load(Ordering::Relaxed) {
+                break;
+            }
+            let last = watch.last.load(Ordering::Acquire);
+            if last == 0 || now_ms().saturating_sub(last) < 500 {
+                continue;
+            }
+            // A move that landed after the snapshot is not quiet yet. Don't
+            // claim the old stamp; the next tick waits out the new one.
+            if watch.last.load(Ordering::Acquire) != last {
+                continue;
+            }
+            if watch.checked.swap(last, Ordering::AcqRel) == last {
+                continue;
+            }
+            if let Some(rail) = app.get_webview_window(RAIL) {
+                // Snapshot before queueing so a reset that runs first on the
+                // main thread invalidates this correction (stale `from`
+                // would jump the window back off-screen).
+                let generation = rail_position::animation_generation();
+                let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                let read_rail = rail.clone();
+                if app
+                    .run_on_main_thread(move || {
+                        let _ = tx.send(rail_position::plan_at(&read_rail, generation));
+                    })
+                    .is_err()
+                {
+                    continue;
+                }
+                if let Ok(Ok(Some(target))) = rx.recv() {
+                    rail_position::glide(&rail, target);
+                }
+            }
+        });
     }
     let app = app.clone();
     std::thread::spawn(move || {
@@ -417,23 +515,18 @@ fn create_rail(app: &tauri::AppHandle, config: &Config) -> Result<(), Box<dyn st
     .visible_on_all_workspaces(true)
     .visible(config.show_rail)
     .build()?;
-    if let Some(m) = rail.primary_monitor()? {
-        let scale = m.scale_factor();
-        let size = m.size().to_logical::<f64>(scale);
-        let origin = m.position().to_logical::<f64>(scale);
-        let saved: Value = position_path(app)
-            .and_then(|p| std::fs::read(p).ok())
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or(Value::Null);
-        let x = saved["x"]
-            .as_f64()
-            .unwrap_or(origin.x + size.width - 380.)
-            .clamp(origin.x - 240., origin.x + size.width - 70.);
-        let y = saved["y"]
-            .as_f64()
-            .unwrap_or(origin.y + 80.)
-            .clamp(origin.y + 30., origin.y + size.height - 130.);
-        rail.set_position(tauri::LogicalPosition::new(x, y))?;
+    // Restore through the shared visibility rule; the first launch keeps the
+    // original top-right default. Losing the monitor list only skips the move.
+    let saved: Value = position_path(app)
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(Value::Null);
+    let saved = match (saved["x"].as_f64(), saved["y"].as_f64()) {
+        (Some(x), Some(y)) if x.is_finite() && y.is_finite() => Some((x, y)),
+        _ => None,
+    };
+    if let Err(error) = rail_position::place(&rail, saved) {
+        eprintln!("Agent Companion 悬浮窗位置: {error}");
     }
     #[cfg(target_os = "macos")]
     {

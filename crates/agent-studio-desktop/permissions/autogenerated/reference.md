@@ -7,6 +7,7 @@ Read local sessions, configure monitoring and control Agent Studio windows.
 - `allow-monitor-state`
 - `allow-rail-settings-get`
 - `allow-rail-settings-set`
+- `allow-rail-reset-position`
 - `allow-collector-request`
 - `allow-set-hit-regions`
 - `allow-close-settings`
@@ -175,6 +176,32 @@ Enables the open_view command without any pre-configured scope.
 <td>
 
 Denies the open_view command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`agent-studio:allow-rail-reset-position`
+
+</td>
+<td>
+
+Enables the rail_reset_position command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`agent-studio:deny-rail-reset-position`
+
+</td>
+<td>
+
+Denies the rail_reset_position command without any pre-configured scope.
 
 </td>
 </tr>

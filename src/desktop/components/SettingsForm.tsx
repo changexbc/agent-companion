@@ -97,6 +97,8 @@ export function SettingsForm() {
   }));
   const busy = saveState.busy;
   const [status, setStatus] = React.useState('正在读取设置…');
+  const [railReset, setRailReset] = React.useState<'idle' | 'busy' | 'done'>('idle');
+  const [railResetError, setRailResetError] = React.useState<string | null>(null);
   // An older configuration read must never settle over a newer retry.
   const readId = React.useRef(0);
   const loading = !ready && !failed;
@@ -134,6 +136,24 @@ export function SettingsForm() {
   }, []);
 
   React.useEffect(() => { load().catch(() => {}); }, [load]);
+
+  const resetRailPosition = async () => {
+    setRailReset('busy');
+    setRailResetError(null);
+    try {
+      await desktopCommand('rail_reset_position');
+      setRailReset('done');
+    } catch (error) {
+      setRailResetError(errorMessage(error));
+      setRailReset('idle');
+    }
+  };
+
+  React.useEffect(() => {
+    if (railReset !== 'done') return;
+    const timer = window.setTimeout(() => setRailReset('idle'), 2000);
+    return () => window.clearTimeout(timer);
+  }, [railReset]);
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -213,6 +233,27 @@ export function SettingsForm() {
                 </SelectContent>
               </Select>
             </div>
+            {isDesktop() && (
+              <div className="row">
+                <Label htmlFor="reset-rail-position">
+                  <strong>悬浮窗位置</strong>
+                  <small role="status" data-error={railResetError ? true : undefined}>
+                    {railResetError ? `重置失败：${railResetError}` : '找不到悬浮窗时，把它移回屏幕右上角'}
+                  </small>
+                </Label>
+                <Button
+                  id="reset-rail-position"
+                  type="button"
+                  variant="outline"
+                  className="shrink-0 text-[11px]"
+                  data-action="reset-rail-position"
+                  disabled={railReset === 'busy'}
+                  onClick={() => void resetRailPosition()}
+                >
+                  {railReset === 'busy' ? '正在重置…' : railReset === 'done' ? '已重置' : '重置位置'}
+                </Button>
+              </div>
+            )}
             </div>
           </section>
           {ready && <section><IntegrationManager

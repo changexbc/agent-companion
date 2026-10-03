@@ -5,6 +5,7 @@ fn main() {
         "set_hit_regions",
         "rail_settings_get",
         "rail_settings_set",
+        "rail_reset_position",
         "close_settings",
         "open_view",
         "open_session_url",
