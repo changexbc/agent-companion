@@ -56,6 +56,11 @@ export interface DesktopCommandMap {
     args: { preferences: RailPreferences; autostart: boolean };
     result: RailPreferencesState;
   };
+  /** Moves the rail to the primary work area's top-right corner. */
+  rail_reset_position: {
+    args: Record<string, never>;
+    result: null;
+  };
   close_settings: {
     args: Record<string, never>;
     result: null;
