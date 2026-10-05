@@ -21,4 +21,5 @@ for (const file of files) {
     }
   }
 }
+for (const file of ['ponyo.png','totoro.png','jiro.png','nahoko.png','sosuke.png','chihiro.png','haku.png','noface.png','kiki.png','jiji.png','howl.png','sophie.png','calcifer.png','san.png','ashitaka.png','nausicaa.png','ponyo-human.png']) await fs.access(path.join(root, 'dist/avatars/cinema', file));
 console.log(`PASS: independent rail/settings bundle, ${bytes} bytes, no 3D resources`);

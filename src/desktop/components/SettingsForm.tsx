@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { IntegrationManager } from './IntegrationManager.js';
+import { cinemaPortraits } from '../cinema.js';
 import { UpdateSettings } from './UpdateSettings.js';
-import { BOT_AVATAR_COUNT, createAvatar } from '../avatar.js';
+import { BOT_AVATAR_COUNT, CRITTER_AVATAR_COUNT, CINEMA_AVATAR_COUNT, createAvatar } from '../avatar.js';
 import { desktopCommand, isDesktop } from '../host.js';
 import { agents, loadListening, saveListening, saveWorkbuddyLogWatch } from '../listening.js';
 import { defaultPreferences, loadPreferences, savePreferencePatch } from '../preferences.js';
@@ -19,6 +20,8 @@ const counts = Array.from({length: 14}, (_, index) => index + 3);
 const styles: readonly (readonly [AvatarStyle, string, string])[] = [
   ['animal', '小动物', '10 种动物伙伴'],
   ['bot', '几何伙伴', `${BOT_AVATAR_COUNT} 种简洁造型`],
+  ['critters', '彩色小怪兽', `${CRITTER_AVATAR_COUNT} 种 Critters 伙伴`],
+  ['cinema', '动画电影伙伴', `${CINEMA_AVATAR_COUNT} 款头像 · 含宗介与人形波妞`],
 ];
 
 const allEnabled = () => Object.fromEntries(agents.map(([id]) => [id, true])) as Record<SourceId, boolean>;
@@ -50,7 +53,7 @@ function StylePreview({ style }: { style: AvatarStyle }) {
   React.useEffect(() => {
     const element = host.current;
     if (!element) return;
-    for (const slot of style === 'bot' ? [0, 3, 8] : [0, 1, 2]) element.append(createAvatar(style, slot) as Element);
+    for (const slot of style === 'cinema' ? [0, 4, 1, 5] : style === 'bot' ? [0, 3, 8] : [0, 1, 2]) element.append(createAvatar(style, slot) as Element);
     return () => element.replaceChildren();
   }, [style]);
 
@@ -190,6 +193,12 @@ export function SettingsForm() {
                 </Button>
               ))}
             </div>
+            {values.avatarStyle === 'cinema' && <div className="cinema-gallery" role="list" aria-label="电影角色头像">
+              {cinemaPortraits.map(portrait => <div role="listitem" key={portrait.file}>
+                <img src={`/avatars/cinema/${portrait.file}`} alt="" />
+                <span>{portrait.name}</span>
+              </div>)}
+            </div>}
           </section>
           <section aria-labelledby="display">
             <h2 id="display">显示</h2>

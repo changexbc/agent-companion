@@ -212,9 +212,11 @@ function Ghost({ghost, connection, avatarStyle, controller}: {
   if (ghost.kind === 'avatar') {
     return (
       <button ref={node as React.RefObject<HTMLButtonElement>} type="button" className="desktop-avatar desktop-departing" data-status={presentation.status} aria-hidden="true" inert style={style}>
-        <AvatarPortrait style={avatarStyle} slot={ghost.item.identity.slot} status={presentation.status} />
-        <span className="desktop-source"><ProviderIcons item={ghost.item} presentation={presentation} hostOnly /></span>
-        <i className="desktop-dot" />
+        <span className="desktop-avatar-visual">
+          <AvatarPortrait style={avatarStyle} slot={ghost.item.identity.slot} status={presentation.status} />
+          <span className="desktop-source"><ProviderIcons item={ghost.item} presentation={presentation} hostOnly /></span>
+          <i className="desktop-dot" />
+        </span>
       </button>
     );
   }

@@ -63,7 +63,8 @@ test('Codeg offline unregister remains pending and retries without touching unre
  const server=http.createServer(async(req,res)=>{
   let chunks=[];for await(const chunk of req)chunks.push(chunk);let p=JSON.parse(Buffer.concat(chunks).toString()||'{}');
   if(offline){res.writeHead(503).end();return;}
-  let value=null;switch(req.url){case '/api/get_chat_event_webhooks':value=hooks;break;case '/api/set_chat_event_webhooks':hooks=p.webhooks;break;case '/api/get_chat_event_filter':value=events;break;default:assert.fail(req.url);}
+  // The upstream observer also enumerates active connections at startup.
+  let value=null;switch(req.url){case '/api/acp_list_connections':value=[];break;case '/api/get_chat_event_webhooks':value=hooks;break;case '/api/set_chat_event_webhooks':hooks=p.webhooks;break;case '/api/get_chat_event_filter':value=events;break;default:assert.fail(req.url);}
   res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));

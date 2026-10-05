@@ -50,7 +50,7 @@ pub fn validate(v: &Value) -> Result<Value, String> {
         }
     }
     for (g, k, choices) in [
-        ("monitor", "avatarStyle", json!(["animal", "bot"])),
+        ("monitor", "avatarStyle", json!(["animal", "bot", "critters", "cinema"])),
         ("monitor", "railVisibleCount", json!([3,4,5,6,7,8,9,10,11,12,13,14,15,16])),
         ("monitor", "retentionHours", json!([0, 0.5, 24, 168])),
         ("monitor", "assignment", json!(["auto", "fixed"])),
@@ -131,7 +131,7 @@ mod frame_rate_tests {
         let mut value = defaults();
         value["monitor"].as_object_mut().unwrap().remove("avatarStyle");
         assert_eq!(validate(&value).unwrap()["monitor"]["avatarStyle"], "animal");
-        for mode in ["animal", "bot"] {
+        for mode in ["animal", "bot", "critters", "cinema"] {
             value["monitor"]["avatarStyle"] = json!(mode);
             assert_eq!(validate(&value).unwrap()["monitor"]["avatarStyle"], mode);
         }

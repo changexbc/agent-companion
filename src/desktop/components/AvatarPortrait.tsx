@@ -15,7 +15,8 @@ import { avatarBody, avatarParts, updateAvatar, type AvatarStyle } from '../avat
  * correct even when React has just replaced the markup for a new avatar style.
  */
 export function AvatarPortrait({style, slot, status, initialStatus}: {style: AvatarStyle; slot: number; status: string; initialStatus?: string}) {
-  const parts = React.useMemo(() => avatarParts(style, slot), [style, slot]);
+  const id = React.useId();
+  const parts = React.useMemo(() => avatarParts(style, slot, id), [style, slot, id]);
   const node = React.useRef<SVGSVGElement | null>(null);
   const previousParts = React.useRef(parts);
   React.useLayoutEffect(() => {

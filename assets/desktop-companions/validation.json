@@ -1,0 +1,218 @@
+{
+  "base": "14430ef9f3ec592f2c898fb088800cc7b7a70097",
+  "web": "npm run ci:web: passed",
+  "web_runtime_tests": {
+    "passed": 187,
+    "failed": 0,
+    "skipped": 0
+  },
+  "rust_workspace_tests": {
+    "passed": 151,
+    "failed": 0
+  },
+  "rust_node_parity": "passed",
+  "native": {
+    "platform": "macOS",
+    "checks": [
+      {
+        "name": "fixture has neighbors",
+        "passed": true
+      },
+      {
+        "name": "actual drawing dimensions support magnification",
+        "passed": true
+      },
+      {
+        "name": "motion is available for this fixture",
+        "passed": true
+      },
+      {
+        "name": "enlargement redraws the portrait at its larger layout resolution",
+        "passed": true
+      },
+      {
+        "name": "enlargement preserves the original face and expression",
+        "passed": true
+      },
+      {
+        "name": "only the round visual surface paints the avatar background",
+        "passed": true
+      },
+      {
+        "name": "native pointer enlarges nearest avatar",
+        "passed": true
+      },
+      {
+        "name": "native pointer gently enlarges both neighbors",
+        "passed": true
+      },
+      {
+        "name": "enlargement leaves layout anchors stable",
+        "passed": true
+      },
+      {
+        "name": "enlarged portraits fit the scroll viewport",
+        "passed": true
+      },
+      {
+        "name": "enlarged outer edge reaches the correct button",
+        "passed": true
+      },
+      {
+        "name": "leaving restores every avatar",
+        "passed": true
+      },
+      {
+        "name": "animal small magnification",
+        "passed": true
+      },
+      {
+        "name": "animal medium magnification",
+        "passed": true
+      },
+      {
+        "name": "animal standard magnification",
+        "passed": true
+      },
+      {
+        "name": "bot small magnification",
+        "passed": true
+      },
+      {
+        "name": "bot medium magnification",
+        "passed": true
+      },
+      {
+        "name": "bot standard magnification",
+        "passed": true
+      },
+      {
+        "name": "critters small magnification",
+        "passed": true
+      },
+      {
+        "name": "critters medium magnification",
+        "passed": true
+      },
+      {
+        "name": "critters standard magnification",
+        "passed": true
+      },
+      {
+        "name": "cinema small magnification",
+        "passed": true
+      },
+      {
+        "name": "cinema medium magnification",
+        "passed": true
+      },
+      {
+        "name": "cinema standard magnification",
+        "passed": true
+      },
+      {
+        "name": "animation switch disables the lens",
+        "passed": true
+      },
+      {
+        "name": "scroll keeps the lens centered and unclipped",
+        "passed": true
+      },
+      {
+        "name": "DOM mouse movement also drives the lens",
+        "passed": true
+      }
+    ],
+    "styles_and_sizes": [
+      {
+        "style": "animal",
+        "size": "small",
+        "scale": 1.3992007104795736,
+        "contained": true
+      },
+      {
+        "style": "animal",
+        "size": "medium",
+        "scale": 1.398973954222573,
+        "contained": true
+      },
+      {
+        "style": "animal",
+        "size": "standard",
+        "scale": 1.3987926136363635,
+        "contained": true
+      },
+      {
+        "style": "bot",
+        "size": "small",
+        "scale": 1.3992007104795736,
+        "contained": true
+      },
+      {
+        "style": "bot",
+        "size": "medium",
+        "scale": 1.4001578531965273,
+        "contained": true
+      },
+      {
+        "style": "bot",
+        "size": "standard",
+        "scale": 1.3987926136363635,
+        "contained": true
+      },
+      {
+        "style": "critters",
+        "size": "small",
+        "scale": 1.3992007104795736,
+        "contained": true
+      },
+      {
+        "style": "critters",
+        "size": "medium",
+        "scale": 1.399368587213891,
+        "contained": true
+      },
+      {
+        "style": "critters",
+        "size": "standard",
+        "scale": 1.3987926136363635,
+        "contained": true
+      },
+      {
+        "style": "cinema",
+        "size": "small",
+        "scale": 1.3992007104795736,
+        "contained": true
+      },
+      {
+        "style": "cinema",
+        "size": "medium",
+        "scale": 1.399368587213891,
+        "contained": true
+      },
+      {
+        "style": "cinema",
+        "size": "standard",
+        "scale": 1.3991477272727273,
+        "contained": true
+      }
+    ],
+    "draw_sizes": {
+      "before": 31.1875,
+      "after": 43.640625,
+      "pixelRatio": 2
+    },
+    "unique_portraits": 17,
+    "passed": true
+  },
+  "native_windows_linux": "not verified",
+  "test_preferences": "temporary events; no settings file writes",
+  "assets": {
+    "portraits": 17,
+    "dimensions": [
+      1254,
+      1254
+    ],
+    "original_images_unchanged": true
+  }
+}

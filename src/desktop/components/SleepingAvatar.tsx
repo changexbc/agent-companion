@@ -9,8 +9,10 @@ export function SleepingAvatar({avatar, label, controller}: {
   const attach = React.useCallback((element: HTMLDivElement | null) => controller.attach.resting(element), [controller]);
   return (
     <div className="desktop-empty desktop-sleeping" role="img" title={label} aria-label={label} ref={attach}>
-      <AvatarPortrait style={avatar.style} slot={avatar.slot} status="sleep" initialStatus={avatar.fromStatus} />
-      <span className="sleep-symbols" aria-hidden="true"><i>z</i><i>Z</i><i>Z</i></span>
+      <span className="desktop-avatar-visual">
+        <AvatarPortrait style={avatar.style} slot={avatar.slot} status="sleep" initialStatus={avatar.fromStatus} />
+        <span className="sleep-symbols" aria-hidden="true"><i>z</i><i>Z</i><i>Z</i></span>
+      </span>
     </div>
   );
 }

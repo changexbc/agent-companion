@@ -90,7 +90,7 @@ export function createHitRegions({ isBlocked }: HitRegionOptions) {
    * window's input shape on its previous value.
    */
   const hittable = (element: HTMLElement) => {
-    if (element.hasAttribute('disabled') || element.closest('[hidden], .desktop-departing')) return false;
+    if (element.hasAttribute('disabled') || element.closest('button:disabled, [hidden], .desktop-departing')) return false;
     if (!element.getClientRects().length) return false;
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;

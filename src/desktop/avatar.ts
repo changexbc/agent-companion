@@ -1,5 +1,9 @@
 import './avatar.css';
 import { nextWorkGaze, workGazeDelay } from './avatar-gaze.js';
+import { critterBody, critterNames, updateCritter } from './critters.js';
+export { CRITTER_AVATAR_COUNT } from './critters.js';
+import { cinemaBody, cinemaNames } from './cinema.js';
+export { CINEMA_AVATAR_COUNT } from './cinema.js';
 
 // Nested groups keep ear pose, state follow-through and occasional twitches independent.
 function ear(side: string, x: number, y: number, shape: string) {
@@ -36,12 +40,17 @@ const bots = [
 ];
 const botNames = ['多边形伙伴', '方块伙伴', '水滴伙伴', '爱心伙伴', '圆球伙伴', '三角伙伴', '菱形伙伴', '六边形伙伴', '星星伙伴', '胶囊伙伴'];
 export const BOT_AVATAR_COUNT = bots.length;
-export type AvatarStyle = 'animal' | 'bot';
+export type { AvatarStyle } from '../types/settings.js';
+import type { AvatarStyle } from '../types/settings.js';
 export type AvatarStatus = 'idle' | 'sleep' | 'running' | 'wait' | 'done' | 'error' | 'offline';
+
+export function avatarCount(style: AvatarStyle) {
+  return style === 'cinema' ? cinemaNames.length : style === 'critters' ? critterNames.length : style === 'bot' ? botNames.length : animalNames.length;
+}
 
 export function avatarIdentity(style: AvatarStyle, slot = 0) {
   const index = Number.isInteger(slot) && slot >= 0 ? slot : 0;
-  const names = style === 'bot' ? botNames : animalNames;
+  const names = style === 'cinema' ? cinemaNames : style === 'critters' ? critterNames : style === 'bot' ? botNames : animalNames;
   const variant = index % names.length;
   return {variant, name: names[variant]};
 }
@@ -62,17 +71,17 @@ const eyes: Record<AvatarStatus, string[]> = {
  * builds the same element imperatively for the settings preview, which has no
  * React tree of its own to live in.
  */
-export function avatarParts(style: AvatarStyle, slot = 0) {
+export function avatarParts(style: AvatarStyle, slot = 0, id = 'portrait') {
   const index = Number.isInteger(slot) && slot >= 0 ? slot : 0;
   const variant = avatarIdentity(style, index).variant;
-  const character = style !== 'bot' && variant === 0 ? 'cat' : style !== 'bot' && variant === 3 ? 'rabbit' : 'other';
-  const resolved: AvatarStyle = style === 'bot' ? 'bot' : 'animal';
+  const character = style === 'animal' && variant === 0 ? 'cat' : style === 'animal' && variant === 3 ? 'rabbit' : 'other';
+  const resolved: AvatarStyle = style === 'cinema' ? 'cinema' : style === 'critters' ? 'critters' : style === 'bot' ? 'bot' : 'animal';
   return {
     index,
     character,
     style: resolved,
     color: colors[index % colors.length],
-    shape: (style === 'bot' ? bots : animals)[variant],
+    shape: style === 'cinema' ? cinemaBody(variant) : style === 'critters' ? critterBody(variant, id.replace(/[^a-zA-Z0-9_-]/g, '-')) : (style === 'bot' ? bots : animals)[variant],
     variables: {
       '--blink-time': `${5.3 + index % 5 * .73}s`,
       '--motion-delay': `${-(index * 1.37 % 7)}s`,
@@ -90,13 +99,15 @@ export function avatarParts(style: AvatarStyle, slot = 0) {
  * `d` is rewritten on every status change by `updateAvatar`.
  */
 export function avatarBody(parts: ReturnType<typeof avatarParts>) {
+  if (parts.style === 'critters' || parts.style === 'cinema') return `<g class="companion-body"><g class="companion-attention">${parts.shape}</g></g>`;
   const face = `<g class="companion-attention"><g fill="${parts.color}">${parts.shape}</g><g class="companion-pointer"><g class="companion-look"><g class="companion-lids"><path/><path/></g></g></g></g>`;
   // A separate group keeps working motion independent of acknowledgement and hover.
   return `<g class="companion-body">${parts.style === 'bot' ? `<g class="companion-work">${face}</g>` : face}</g>`;
 }
 
+let portraitId = 0;
 export function createAvatar(style: AvatarStyle = 'animal', slot = 0) {
-  const parts = avatarParts(style, slot);
+  const parts = avatarParts(style, slot, `preview-${portraitId++}`);
   const template = document.createElement('template');
   template.innerHTML = `<svg class="companion-avatar desktop-portrait" viewBox="0 0 100 100" aria-hidden="true" data-character="${parts.character}" data-style="${parts.style}">${avatarBody(parts)}</svg>`;
   const node = template.content.firstElementChild as SVGSVGElement;
@@ -109,6 +120,7 @@ export function updateAvatar(node: SVGSVGElement, status: string) {
   if (node.dataset.state === state) return;
   node.classList.toggle('companion-resuming', node.dataset.state === 'wait' && state === 'running');
   node.dataset.state = state;
+  if (node.dataset.style === 'critters') { updateCritter(node, state); return; }
   node.querySelectorAll('.companion-lids path').forEach((path, i) => path.setAttribute('d', eyes[state][i]));
 }
 export function pointAvatar(button: HTMLElement | null | undefined, point: {x: number; y: number} | null) {

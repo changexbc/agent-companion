@@ -1,6 +1,7 @@
 /* Match a single session's geometry so its portrait can fall asleep in place. */
 .desktop-strip-empty{height:100px}
-.desktop-empty{position:absolute;top:36px;width:44px;height:44px;display:grid;place-items:center;border:2px solid #fff;border-radius:50%;background:#f4f6ed}
+.desktop-empty{position:absolute;top:36px;width:44px;height:44px;display:grid;place-items:center}
+.desktop-empty>.desktop-avatar-visual{background:#f4f6ed}
 .desktop-sleeping .companion-body{animation:companion-fall-asleep .65s ease-out both}
 .desktop-sleeping .companion-attention{animation:companion-sleep-breathe 4.8s ease-in-out .65s infinite}
 .desktop-sleeping .companion-look,.desktop-sleeping .companion-lids,.desktop-sleeping .companion-ear-tip{animation:none;transform:none}

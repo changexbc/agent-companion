@@ -42,16 +42,18 @@ export function SessionAvatar({item, presentation, avatarStyle, hidden, controll
         controller.openContextMenu(item.id, event.clientX, event.clientY);
       }}
     >
-      <AvatarPortrait style={avatarStyle} slot={item.identity.slot} status={presentation.status} />
-      <span className="desktop-source" title={label} aria-label={label}>
-        <ProviderIcons item={item} presentation={presentation} hostOnly />
+      <span className="desktop-avatar-visual">
+        <AvatarPortrait style={avatarStyle} slot={item.identity.slot} status={presentation.status} />
+        <span className="desktop-source" title={label} aria-label={label}>
+          <ProviderIcons item={item} presentation={presentation} hostOnly />
+        </span>
+        <i className={`desktop-dot${countingDown ? ' desktop-dot-countdown' : ''}`}>
+          {countingDown && <svg className="desktop-countdown" viewBox="0 0 18 18" aria-hidden="true" focusable="false" key={`${item.session.roundId}:${item.openedUntil}`}>
+            <circle className="desktop-countdown-track" cx="9" cy="9" r="7.5" />
+            <circle className="desktop-countdown-progress" cx="9" cy="9" r="7.5" style={{animationDuration: `${OPENED_HOLD_MS}ms`}} />
+          </svg>}
+        </i>
       </span>
-      <i className={`desktop-dot${countingDown ? ' desktop-dot-countdown' : ''}`}>
-        {countingDown && <svg className="desktop-countdown" viewBox="0 0 18 18" aria-hidden="true" focusable="false" key={`${item.session.roundId}:${item.openedUntil}`}>
-          <circle className="desktop-countdown-track" cx="9" cy="9" r="7.5" />
-          <circle className="desktop-countdown-progress" cx="9" cy="9" r="7.5" style={{animationDuration: `${OPENED_HOLD_MS}ms`}} />
-        </svg>}
-      </i>
     </button>
   );
 }

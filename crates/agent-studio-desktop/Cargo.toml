@@ -7,6 +7,8 @@ license = "MIT"
 description = "Agent Studio Tauri integration"
 [lib]
 name = "agent_studio_desktop"
+[features]
+diagnostics = []
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
 [dependencies]

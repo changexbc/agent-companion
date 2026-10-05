@@ -45,6 +45,7 @@ export const OVERFLOW_HOLD_MS = 10_000;
 
 export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOLD_MS }: RailModelOptions = {}) {
   const rows = new Map<string, RailRow>(), portraits = new Map<string, number>(), dismissed = new Set<string>();
+  let portraitCount = PORTRAITS.length;
   // A response can beat a previously emitted snapshot to the WebView. Keep
   // that old snapshot from recreating a just-closed row, while admitting a
   // newer snapshot produced by a subsequent Hook for the same round.
@@ -72,12 +73,13 @@ export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOL
     closedRounds.set(id, { roundId, until: Math.max(now(), endedAt) + holdMs });
     try { storage?.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...closedRounds].slice(-256).map(([key, value]) => [key, value.roundId, value.until]))); } catch {}
   }
-  function portrait(id: string): RailIdentity {
-    const occupied = new Set([...rows.values()].map(row => row.identity.slot));
-    if (!portraits.has(id) || occupied.has(portraits.get(id)!)) {
-      const counts = PORTRAITS.map((_, index) => [...occupied].filter(slot => slot % PORTRAITS.length === index).length);
+  function portrait(id: string, occupied = new Set([...rows.values()].map(row => row.identity.slot))): RailIdentity {
+    const counts = Array.from({length: portraitCount}, (_, index) => [...occupied].filter(slot => slot % portraitCount === index).length);
+    const cached = portraits.get(id);
+    // Distinct stored slot numbers can still resolve to the same character.
+    if (cached === undefined || occupied.has(cached) || counts[cached % portraitCount] > Math.min(...counts)) {
       let slot = counts.indexOf(Math.min(...counts));
-      while (occupied.has(slot)) slot += PORTRAITS.length;
+      while (occupied.has(slot)) slot += portraitCount;
       portraits.set(id, slot);
       while (portraits.size > Math.max(256, rows.size + 1)) {
         const old = [...portraits.keys()].find(key => !rows.has(key) && key !== id);
@@ -180,6 +182,16 @@ export function createRailModel({ now = Date.now, storage, holdMs = FINISHED_HOL
     }
   }
   return {
+    setPortraitCount(count: number) {
+      if (!Number.isInteger(count) || count < 1 || count > 256) throw Error('头像数量无效');
+      if (portraitCount === count) return;
+      portraitCount = count;
+      const occupied = new Set<number>();
+      for (const [id, row] of rows) {
+        row.identity = portrait(id, occupied);
+        occupied.add(row.identity.slot);
+      }
+    },
     accept(value: Snapshot) { snapshot = value; reconcile(); },
     connect(value: ConnectionState) { connection = value; reconcile(); },
     retainOpened(id: string, roundId: string) {

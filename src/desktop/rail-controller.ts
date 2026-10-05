@@ -37,9 +37,10 @@ import { createRailWelcome, type RailWelcomeState } from './welcome/index.js';
 import { createHitRegions, type HitRegions } from './hit-regions.js';
 import { loadPreferences, watchPreferences } from './preferences.js';
 import type { RailPreferencesState, RailSize } from '../types/settings.js';
-import { avatarIdentity, observeAvatars, pointAvatar, type AvatarStyle } from './avatar.js';
+import { avatarCount, avatarIdentity, observeAvatars, pointAvatar, type AvatarStyle } from './avatar.js';
 import { animateArrival, animateHeight, animateReorder, cancelHeightAnimations, leaveSurface, reducedMotion, revealSurface, retireGhost } from './rail-animations.js';
 import type { ConnectionState } from '../types/snapshot.js';
+import { createDockMagnification } from './dock-magnification.js';
 
 const TERMINAL = new Set(['done', 'error', 'aborted']);
 const URGENT = new Set(['wait', 'error']);
@@ -162,6 +163,12 @@ export function createRailController(options: RailControllerOptions = {}) {
   const measured = {height: 0, avatars: new Map<string, number>()};
 
   const hitRegions: HitRegions = createHitRegions({isBlocked: () => welcome.blocking});
+  const dock = createDockMagnification({
+    list: () => list && !list.hidden ? list : strip,
+    avatars: () => restingElement ? [...avatars.values(), restingElement] : avatars.values(),
+    enabled: () => animationEnabled && !welcome.blocking && !contextMenu,
+    onGeometryChange: () => hitRegions.sync(),
+  });
   // Created against the container rather than `document.body`: the paused state
   // is a class on the rail element, and a document-level class would be a second
   // writer of the same switch.
@@ -265,6 +272,7 @@ export function createRailController(options: RailControllerOptions = {}) {
   }
 
   function positionAll() {
+    dock.refresh();
     positionNotice();
     if (cardEl && card && !cardEl.hidden) positionPreview(cardEl, card.id);
     for (const [id, surface] of automatics) if (!surface.hidden) positionPreview(surface, id);
@@ -463,6 +471,7 @@ export function createRailController(options: RailControllerOptions = {}) {
 
   const unsubscribePointer = onDesktopPointer(point => {
     const target = point ? document.elementFromPoint(point.x, point.y) : null;
+    dock.update(target?.closest('.desktop-grip,.desktop-card,.desktop-overflow,.desktop-context-menu') ? null : point);
     const control = (target?.closest('button:not(:disabled)') as HTMLElement | null) || null;
     if (control !== nativeControl) { nativeControl?.classList.remove('native-hover'); control?.classList.add('native-hover'); nativeControl = control; }
     const avatar = target?.closest('.desktop-avatar') as HTMLElement | null;
@@ -488,11 +497,14 @@ export function createRailController(options: RailControllerOptions = {}) {
     if (!settings) return;
     const count = settings.visibleCount || 8;
     if (count !== visibleCount) expanded = false;
-    avatarStyle = settings.avatarStyle === 'bot' ? 'bot' : 'animal';
+    avatarStyle = settings.avatarStyle === 'cinema' ? 'cinema' : settings.avatarStyle === 'critters' ? 'critters' : settings.avatarStyle === 'bot' ? 'bot' : 'animal';
+    model.setPortraitCount(avatarCount(avatarStyle));
+    restingAvatar = {...restingAvatar, style: avatarStyle};
     visibleCount = count;
     size = settings.size === 'small' || settings.size === 'medium' ? settings.size : 'standard';
     animationEnabled = settings.animation !== false;
     motionPaused = !animationEnabled;
+    dock.refresh();
     applyContainer();
     publish();
     positionAll();
@@ -513,6 +525,7 @@ export function createRailController(options: RailControllerOptions = {}) {
    * measurements are consumed.
    */
   function afterCommit() {
+    dock.refresh();
     if (strip) {
       // A height animation overrides the cascade, so while one is running the
       // element's box is not its layout height. The pre-migration render()
@@ -617,7 +630,7 @@ export function createRailController(options: RailControllerOptions = {}) {
       avatar(id: string, element: HTMLElement | null) {
         if (element) { avatars.set(id, element); avatarObserver?.observe(element.querySelector('.companion-avatar')); }
         else { avatars.delete(id); avatarObserver?.unobserve(element); }
-        hitRegions.register(`avatar:${id}`, 'control', element);
+        hitRegions.register(`avatar:${id}`, 'control', element?.querySelector<HTMLElement>('.desktop-avatar-visual') ?? null);
       },
       automatic(id: string, element: HTMLElement | null) {
         if (element) automatics.set(id, element); else { automatics.delete(id); visible.delete(id); }
@@ -688,6 +701,7 @@ export function createRailController(options: RailControllerOptions = {}) {
     leaveCard() { if (card?.id) leaveRegion(card.id, 'card'); scheduleHide(); },
     /** Scrolling the list moves every placed surface without changing any data. */
     onListScroll() {
+      dock.refresh();
       if (activeId && card && cardEl) {
         revealSurface(cardEl, visible.get('card') ?? false);
         visible.set('card', true);
@@ -727,7 +741,7 @@ export function createRailController(options: RailControllerOptions = {}) {
     dispose() {
       welcomeController.dispose();
       unsubscribeWindowActive(); unsubscribePointer(); unsubscribeSettings(); unsubscribeData();
-      avatarObserver?.dispose(); resize.disconnect(); window.removeEventListener('resize', onWindowResize);
+      dock.dispose(); avatarObserver?.dispose(); resize.disconnect(); window.removeEventListener('resize', onWindowResize);
       clearTimeout(expiryTimer); clearTimeout(hideTimer); clearTimeout(noticeTimer);
     },
   };

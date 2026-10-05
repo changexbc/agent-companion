@@ -152,6 +152,14 @@ fn set_hit_regions(
     hit_test::refresh();
     Ok(())
 }
+
+/// Read-only evidence for opt-in native QA; never exposed as an IPC command.
+#[cfg(feature = "diagnostics")]
+pub fn hit_regions_snapshot(app: &tauri::AppHandle) -> Value {
+    let regions = app.state::<hit_test::Regions>();
+    let snapshot = serde_json::to_value(&*regions.lock().unwrap()).unwrap_or(Value::Null);
+    snapshot
+}
 #[tauri::command]
 async fn rail_reset_position(app: tauri::AppHandle) -> Result<(), String> {
     // One main-thread read plus a ~200 ms animated move would stall the UI if

@@ -12,7 +12,7 @@ export const defaultPreferences = (): RailPreferences => ({ avatarStyle: 'animal
  */
 export function validatePreferences(value: RailPreferences): RailPreferences {
   const size = value.size ?? 'standard'; // Existing saved settings predate the size option.
-  if (!['animal', 'bot'].includes(value.avatarStyle) || !Number.isInteger(value.visibleCount) || value.visibleCount < 3 || value.visibleCount > 16 || typeof value.animation !== 'boolean' || !['small', 'medium', 'standard'].includes(size)) throw Error('悬浮窗设置无效');
+  if (!['animal', 'bot', 'critters', 'cinema'].includes(value.avatarStyle) || !Number.isInteger(value.visibleCount) || value.visibleCount < 3 || value.visibleCount > 16 || typeof value.animation !== 'boolean' || !['small', 'medium', 'standard'].includes(size)) throw Error('悬浮窗设置无效');
   return { avatarStyle: value.avatarStyle, visibleCount: value.visibleCount, animation: value.animation, size };
 }
 

@@ -5,7 +5,7 @@ description = "Agent Companion desktop session assistant"
 edition = "2021"
 
 [features]
-diagnostics = []
+diagnostics = ["agent-studio-desktop/diagnostics"]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 

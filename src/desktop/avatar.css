@@ -34,7 +34,7 @@
 .companion-avatar:not(.companion-visible) *,.companion-system-paused .companion-avatar *{animation-play-state:paused!important}
 .companion-motion-paused .companion-avatar *{animation:none!important;transition:none!important}
 .companion-motion-paused .companion-pointer,.companion-system-paused .companion-pointer{transform:none!important}
-.desktop-avatar:has(.companion-avatar){background:#f4f6ed}
+.desktop-avatar-visual:has(.companion-avatar){background:#f4f6ed}
 .desktop-avatar:hover .companion-look{animation:none;transform:none}
 @keyframes companion-blink{0%,42%,46%,100%{transform:scaleY(1)}44%{transform:scaleY(.08)}}
 @keyframes companion-look{0%,28%,65%,100%{transform:translate(0,0)}34%,48%{transform:translate(3px,-1px)}75%,86%{transform:translate(-2px,1px)}}
@@ -78,3 +78,22 @@
 .companion-avatar[data-state=wait].companion-attentive .companion-attention{transform:translateY(-1px)}
 .companion-motion-paused .companion-avatar[data-state=wait] .companion-attention{transform:none!important}
 @media(prefers-reduced-motion:reduce){.companion-avatar[data-state=wait] .companion-attention{transform:none!important}}
+
+/* Critters artwork stays local; motion follows the companion's pause rules. */
+.companion-avatar[data-style=critters] .companion-work{animation:companion-critter-bob var(--work-time,5s) ease-in-out var(--motion-delay,0s) infinite;transform-origin:50px 60px}
+.companion-avatar[data-style=critters] .dbcr-t{transform-box:fill-box;transform-origin:center;animation:companion-critter-sway var(--ear-time,13s) ease-in-out var(--motion-delay,0s) infinite}
+.companion-avatar[data-style=critters] .dbcr-eb{transform-box:fill-box;transform-origin:center;animation:companion-blink var(--blink-time,6s) ease-in-out var(--motion-delay,0s) infinite}
+.companion-avatar[data-style=critters]:is([data-state=sleep],[data-state=offline]) .companion-look{animation:none}
+.companion-avatar[data-style=critters][data-state=offline] .companion-work,.companion-avatar[data-style=critters][data-state=offline] .dbcr-t{animation:none}
+.companion-avatar[data-style=critters].companion-attentive .companion-attention{transform:translateY(-1px) rotate(2deg)}
+.companion-avatar[data-style=critters].companion-attentive .dbcr-t{animation-play-state:paused}
+@keyframes companion-critter-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
+@keyframes companion-critter-sway{0%,100%{transform:rotate(-1deg)}50%{transform:rotate(3deg)}}
+
+/* Illustrated portraits keep their original faces and use whole-head motion. */
+.companion-avatar[data-style=cinema] .companion-work{animation:companion-critter-bob var(--work-time,5s) ease-in-out var(--motion-delay,0s) infinite;transform-origin:50px 60px}
+.companion-avatar[data-style=cinema] .companion-look{animation:none}
+.companion-avatar[data-style=cinema][data-state=wait]:not(.companion-attentive) .companion-look{animation:companion-wait-gaze var(--wait-time,10s) ease-in-out infinite}
+.companion-avatar[data-style=cinema].companion-attentive .companion-attention{transform:translateY(-1px) rotate(2deg)}
+.companion-avatar[data-style=cinema][data-state=offline] .companion-work{animation:none}
+.companion-avatar[data-style=cinema][data-state=sleep] .companion-work{animation:none}

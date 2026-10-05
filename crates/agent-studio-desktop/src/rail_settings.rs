@@ -12,7 +12,7 @@ impl Default for Preferences {
 }
 impl Preferences {
     fn validate(&self) -> Result<(), String> {
-        if !matches!(self.avatar_style.as_str(), "animal" | "bot") || !(3..=16).contains(&self.visible_count) || !matches!(self.size.as_str(), "small" | "medium" | "standard") { return Err("悬浮窗设置无效".into()); }
+        if !matches!(self.avatar_style.as_str(), "animal" | "bot" | "critters" | "cinema") || !(3..=16).contains(&self.visible_count) || !matches!(self.size.as_str(), "small" | "medium" | "standard") { return Err("悬浮窗设置无效".into()); }
         Ok(())
     }
 }
@@ -437,6 +437,18 @@ mod tests {
         let preferences: Preferences = serde_json::from_value(json!({"avatarStyle":"animal","visibleCount":8,"animation":true})).unwrap();
         assert_eq!(preferences.size, "standard");
         assert!(preferences.validate().is_ok());
+    }
+    #[test]
+    fn avatar_styles_round_trip_and_reject_unknown_values() {
+        for style in ["animal", "bot", "critters", "cinema"] {
+            let preferences = Preferences { avatar_style: style.into(), ..Preferences::default() };
+            let stored = serde_json::to_vec(&preferences).unwrap();
+            let loaded: Preferences = serde_json::from_slice(&stored).unwrap();
+            assert_eq!(loaded.avatar_style, style);
+            assert!(loaded.validate().is_ok());
+        }
+        let invalid = Preferences { avatar_style: "unknown".into(), ..Preferences::default() };
+        assert!(invalid.validate().is_err());
     }
     #[cfg(target_os = "macos")]
     #[test]

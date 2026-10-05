@@ -348,3 +348,19 @@ test('desktop ignores the old eight-character cache after switching portrait set
   assert.equal(model.items[0].identity.id, 'red-panda');
   assert.equal(model.items[0].identity.number, 1);
 });
+
+for (const count of [16,17]) test(`a ${count}-portrait palette repairs cached modulo collisions and stays stable through updates and restarts`, () => {
+  const records=new Map([['astra.desktop.portraits.v2',JSON.stringify([['codex:1',0],['codex:2',count],['codex:3',count*2]])]]);
+  const storage={getItem:key=>records.get(key),setItem:(key,value)=>records.set(key,value)};
+  const model=createRailModel({now:()=>2000,storage});model.setPortraitCount(count);model.connect('connected');
+  const sessions=Array.from({length:count},(_,index)=>session(index+1));model.accept(snapshot(sessions));
+  const slots=model.items.map(item=>item.identity.slot);
+  assert.equal(new Set(slots.map(slot=>slot%count)).size,count);
+  model.accept(snapshot(sessions.map(item=>({...item,status:'wait'}))));
+  assert.deepEqual(model.items.map(item=>item.identity.slot),slots);
+  const restarted=createRailModel({now:()=>2000,storage});restarted.setPortraitCount(count);restarted.connect('connected');restarted.accept(snapshot(sessions));
+  assert.deepEqual(restarted.items.map(item=>item.identity.slot),slots);
+  model.setPortraitCount(10);model.setPortraitCount(count);
+  assert.equal(new Set(model.items.map(item=>item.identity.slot%count)).size,count);
+  assert.equal(model.items.length,count);
+});

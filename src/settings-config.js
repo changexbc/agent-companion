@@ -24,7 +24,7 @@ export function validateSettings(input){
  for(const group of ['monitor','scene','notifications','general','schedule']){if(!raw[group])throw Error('缺少配置分组');for(const k of Object.keys(merged[group])){const value=group==='monitor'&&['railVisibleCount','avatarStyle'].includes(k)&&raw[group][k]===undefined?merged[group][k]:group==='scene'&&['maxFps','renderResolution','showPerformance','weather','lightning'].includes(k)&&raw[group][k]===undefined?merged[group][k]:raw[group][k];if(typeof merged[group][k]==='boolean'&&typeof value!=='boolean')throw Error('开关配置无效');merged[group][k]=value;}}
  /** @type {(v: unknown, values: unknown[]) => void} */
  const choices=(v,values)=>{if(!values.includes(v))throw Error('配置选项无效');};
- choices(d.monitor.avatarStyle,['animal','bot']);
+ choices(d.monitor.avatarStyle,['animal','bot','critters','cinema']);
  choices(d.monitor.railVisibleCount,[3,4,5,6,7,8,9,10,11,12,13,14,15,16]);
  choices(d.monitor.retentionHours,[0,.5,24,168]);choices(d.monitor.assignment,['auto','fixed']);if(!Array.isArray(d.monitor.seats)||d.monitor.seats.length!==8||d.monitor.seats.some(s=>!['auto',...SOURCE_IDS].includes(s)))throw Error('工位配置无效');
  choices(d.scene.light,['day','night','auto']);choices(d.scene.weather,['clear','overcast','rain','downpour','thunderstorm','wind','auto']);choices(d.scene.speed,[1,2,4]);choices(d.scene.maxFps,[30,60]);choices(d.scene.renderResolution,['native','balanced','low']);choices(d.scene.defaultView,['all','program','device']);choices(d.general.mode,['live','demo']);

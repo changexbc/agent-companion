@@ -1,0 +1,197 @@
+{
+  "图集名称": "宫崎骏电影角色同人头像",
+  "生成方式": "Codex 内置 image_gen，AI 辅助生成",
+  "身份说明": "非官方同人作品，不代表电影制作方出品或授权。",
+  "角色数量": 16,
+  "头像款数": 17,
+  "说明": "波妞的人形与金鱼形态为两款独立头像；其余角色各一款。",
+  "头像": [
+    {
+      "key": "ponyo-human",
+      "角色": "波妞（人形）",
+      "作品": "悬崖上的金鱼姬",
+      "文件": "avatars/cinema/ponyo-human.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "5fd1ec27180dac9b908456070d1833fdd3e48774778796783acee210a4897f03",
+      "生成提示词": "Create a NEW single transparent avatar icon of Ponyo in her HUMAN FORM from the animated film Ponyo. Reference image 1 is her fish form and is only a reference for the character's red-orange hair colour, round expressive eyes, gentle facial design and warm cel shading. Reference image 2 is Sosuke's portrait and is only a reference for the head-and-shoulders composition and coherent icon drawing style. Draw the recognizable HUMAN Ponyo: fluffy short red-orange hair, round bright cheerful face, large warm dark eyes, joyful smiling expression, wearing her simple iconic red dress with a little white neckline. A fully dressed, innocent and friendly family-animation character portrait, centered head and shoulders, not a fish body, no fins. Clean soft dark outlines, warm flat cel shading, gentle hand-painted texture, rounded proportions. Square canvas. All hair inside the canvas with 8 percent transparent padding. The face must read clearly at 44px. Transparent background with actual alpha. Only this one character; no text, scene, logo, watermark or enclosing circle."
+    },
+    {
+      "key": "totoro",
+      "角色": "龙猫",
+      "作品": "龙猫",
+      "文件": "avatars/cinema/totoro.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "3e08136a6e2e81a5bbcc4ef8fd30c3d622d4dc4ad2630506c8e6df3c4d437aef",
+      "生成提示词": "Use case: stylized-concept. Asset type: transparent desktop companion avatar icon, one single character. Subject: The large grey Totoro from My Neighbor Totoro: broad round grey head and upper belly, two tall pointed rabbit-like ears, small wide-set round eyes, tiny dark triangular nose, three short whiskers on each cheek, cream belly with a few grey chevrons visible at the bottom. Sweet gentle reserved expression. Recognizably Totoro, no human face. Style: faithful recognizable hand-drawn Japanese animated-film character, simplified chibi portrait, clean dark soft outlines, warm cel shading, rounded appealing silhouette, restrained paper-like painted detail. The face must read extremely well at 44px; avoid fine detail and realistic rendering. Composition: square canvas, only one centered head-and-shoulders bust, large head occupying 75 percent of the canvas, all ears/hair/hat entirely inside the canvas, 8 percent padding on every side. Shoulders end in a gently rounded silhouette at bottom; no enclosing badge or background circle. Transparent background, actual alpha, no scenery, no words, no lettering, no signature, no watermark, no props except specified costume. Clear cheerful gentle expression. This is one standalone icon from a coherent four-icon set."
+    },
+    {
+      "key": "jiro",
+      "角色": "堀越二郎",
+      "作品": "起风了",
+      "文件": "avatars/cinema/jiro.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "8bae0d834b482452e8d627c1e950ed9f116a9b3327ce30be12afc5116742f539",
+      "生成提示词": "Use case: stylized-concept. Asset type: transparent desktop companion avatar icon, one single character. Subject: Jiro Horikoshi from Hayao Miyazaki's The Wind Rises, the animated film character, NOT a portrait of the real historical man: young adult Japanese man, tidy side-parted dark hair, very recognizable thin round dark-rimmed spectacles, warm dark eyes, gentle modest smile, pale cream shirt and subtle blue suit/jacket collar. Front-facing simplified head-and-shoulders portrait. Style: faithful recognizable hand-drawn Japanese animated-film character, simplified chibi portrait, clean dark soft outlines, warm cel shading, rounded appealing silhouette, restrained paper-like painted detail. The face must read extremely well at 44px; avoid fine detail and realistic rendering. Composition: square canvas, only one centered head-and-shoulders bust, large head occupying 75 percent of the canvas, all ears/hair/hat entirely inside the canvas, 8 percent padding on every side. Shoulders end in a gently rounded silhouette at bottom; no enclosing badge or background circle. Transparent background, actual alpha, no scenery, no words, no lettering, no signature, no watermark, no props except specified costume. Clear cheerful gentle expression. This is one standalone icon from a coherent four-icon set."
+    },
+    {
+      "key": "nahoko",
+      "角色": "里见菜穗子",
+      "作品": "起风了",
+      "文件": "avatars/cinema/nahoko.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "57252ceb7d23174c4f8f3b62c31b5727f17951e1212fe3d2017373ff5fb1cdd8",
+      "生成提示词": "Use case: stylized-concept. Asset type: transparent desktop companion avatar icon, one single character. Subject: Nahoko Satomi from Hayao Miyazaki's The Wind Rises: young adult Japanese woman, short dark chestnut bobbed hair, gentle warm dark eyes, soft tender smile, broad cream straw sunhat with a dark rose/red ribbon, pale pink dress collar. Recognizably the anime film heroine, centered front-facing simplified head-and-shoulders portrait. Style: faithful recognizable hand-drawn Japanese animated-film character, simplified chibi portrait, clean dark soft outlines, warm cel shading, rounded appealing silhouette, restrained paper-like painted detail. The face must read extremely well at 44px; avoid fine detail and realistic rendering. Composition: square canvas, only one centered head-and-shoulders bust, large head occupying 75 percent of the canvas, all ears/hair/hat entirely inside the canvas, 8 percent padding on every side. Shoulders end in a gently rounded silhouette at bottom; no enclosing badge or background circle. Transparent background, actual alpha, no scenery, no words, no lettering, no signature, no watermark, no props except specified costume. Clear cheerful gentle expression. This is one standalone icon from a coherent four-icon set."
+    },
+    {
+      "key": "sosuke",
+      "角色": "宗介",
+      "作品": "悬崖上的金鱼姬",
+      "文件": "avatars/cinema/sosuke.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "a361f7fcbc09d3d41417fa528f61feffd5d2f57c9fd8c7d88d2e2b9c6e5dc0c8",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: Sosuke from Ponyo: the friendly animated-film boy with short dark brown slightly spiky hair, round warm face, simple bright yellow shirt, wide expressive dark eyes and a gentle happy smile."
+    },
+    {
+      "key": "chihiro",
+      "角色": "千寻",
+      "作品": "千与千寻",
+      "文件": "avatars/cinema/chihiro.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "988fd26c82bb90f25b0e37a70bece62a978b68fb3d5f91e9d0d106fd8aba2fdb",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: Chihiro Ogino from Spirited Away: chestnut brown hair tied into a simple small ponytail, loose bangs, round earnest face, dark warm eyes, white T-shirt with a single clear green horizontal stripe at the collar/shoulders, determined gentle smile."
+    },
+    {
+      "key": "haku",
+      "角色": "白龙",
+      "作品": "千与千寻",
+      "文件": "avatars/cinema/haku.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "2e0aca1eca90844ad8973aa5840f901dba1f165030f954f77e3d60a13e20e51a",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: Haku in his HUMAN form from Spirited Away: straight chin-length dark teal bob hair with neat blunt bangs, calm green eyes, pale ivory white robe with purple-blue collar, serene gentle expression. Recognizable animated film Haku."
+    },
+    {
+      "key": "noface",
+      "角色": "无脸男",
+      "作品": "千与千寻",
+      "文件": "avatars/cinema/noface.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "348b07c1ac0594497b6e8a5f518f02473171efbbbbbc455a0b1e868c7a5bd5d1",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: No-Face (Kaonashi) from Spirited Away: an elegant rounded tall dark charcoal spirit with the iconic white oval mask, tiny dark eye slits, muted lavender vertical mask markings, tiny simple mouth. Gentle friendly mysterious expression, centered upper-body silhouette."
+    },
+    {
+      "key": "kiki",
+      "角色": "琪琪",
+      "作品": "魔女宅急便",
+      "文件": "avatars/cinema/kiki.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "0a725c5266988926e109caed7e4f663a177f3846bc2ea7db124b14c57984fb2a",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: Kiki from Kiki's Delivery Service: short dark brown bob, very large iconic bright red bow on top of her head, dark navy simple dress collar, lively brown eyes, cheerful confident smile."
+    },
+    {
+      "key": "jiji",
+      "角色": "吉吉",
+      "作品": "魔女宅急便",
+      "文件": "avatars/cinema/jiji.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "ebe6b9223835e07d5252b364ab9969bd90da40e9b13661b1be110d2294fd7004",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: Jiji the black cat from Kiki's Delivery Service: sleek midnight black cat head and rounded upper shoulders, two very large upright triangular ears with muted purple inner ears, large white oval eyes and tiny black pupils, small dark nose and tiny mouth, expressive curious friendly look. Clearly a CAT."
+    },
+    {
+      "key": "howl",
+      "角色": "哈尔",
+      "作品": "哈尔的移动城堡",
+      "文件": "avatars/cinema/howl.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "77f6924a3868d5d68a69d2a377ade637f27b9c521680c326f6ababef96bbd716",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: Howl from Howl's Moving Castle in his iconic blond-haired appearance: handsome gentle animated young man, golden blond chin-length layered bob with parted bangs, clear blue eyes, small green drop earrings, white shirt and just a little pink/blue diamond-pattern coat collar. Soft relaxed smile."
+    },
+    {
+      "key": "sophie",
+      "角色": "苏菲",
+      "作品": "哈尔的移动城堡",
+      "文件": "avatars/cinema/sophie.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "db0fd921073bad9581c985b53983285428b19255b1a82ced8313bf0c9941df1e",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: Sophie Hatter from Howl's Moving Castle, her youthful silver-haired appearance: young woman with silver-grey shoulder-length hair, warm grey eyes, soft pale-blue dress collar, gentle brave smile, small subtle cream straw hat with muted red ribbon. Clearly a distinct heroine, not Nahoko."
+    },
+    {
+      "key": "calcifer",
+      "角色": "卡西法",
+      "作品": "哈尔的移动城堡",
+      "文件": "avatars/cinema/calcifer.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "66c4aefdc9c497d2d0ddf05154a59b4b06ae55a1114b3881209f3ec4629c90e5",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: Calcifer the fire demon from Howl's Moving Castle: one round lively flame character, bright orange-red pointed flame tips, warm yellow middle, large bright white expressive eyes with small dark pupils, tiny open smiling mouth. Clean flame silhouette, no logs, no pot."
+    },
+    {
+      "key": "san",
+      "角色": "珊",
+      "作品": "幽灵公主",
+      "文件": "avatars/cinema/san.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "a9ff3a781132acaf01cee0784f6a02d4901a4a8b3f9ac611e5c38c06b4e54a63",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: San (Princess Mononoke): dark brown short bobbed hair, iconic symmetrical red markings on her forehead and both cheeks, bone-white headband, small round white earrings, a white fur collar over dark navy clothing. Brave calm eyes and a subtle friendly determined expression. No weapon, mask or blood."
+    },
+    {
+      "key": "ashitaka",
+      "角色": "阿席达卡",
+      "作品": "幽灵公主",
+      "文件": "avatars/cinema/ashitaka.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "dde26650c95a6d2478f31957f0c19bc82e7931047df650c798a4a67f81ffbdb4",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: Ashitaka from Princess Mononoke: young animated man with short dark brown slightly tousled hair, strong gentle face, warm dark eyes, a plain blue tunic collar, calm reassuring smile. No sword, no bow, no injuries."
+    },
+    {
+      "key": "nausicaa",
+      "角色": "娜乌西卡",
+      "作品": "风之谷",
+      "文件": "avatars/cinema/nausicaa.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "ffb8c2461e5026d416901a7d8cd4e58a18af196d0ebcc98b4665371ba24cef98",
+      "生成提示词": "Use case: stylized-concept. Asset type: a NEW standalone transparent desktop companion avatar icon, exactly ONE character per image. Style: recognizable Japanese animated-film character, clean soft dark outlines, warm flat cel shading, gentle restrained hand-painted texture, slightly rounded simplified proportions, cohesive with classic hand-drawn animation. Composition: centered front-facing head-and-shoulders bust or equivalent creature bust, square canvas, large expressive face, all hair/ears/hat/flame tips fully contained, 8 percent safe padding. Shoulders end in a rounded silhouette. Reads clearly at 44px. Actual alpha transparency. No background, no scene, no frame, no circle badge, no text, no watermark, no added props. Do not copy another character's features. Subject: Nausicaa from Nausicaa of the Valley of the Wind: auburn shoulder-length windswept hair, warm brown eyes, her distinctive sky-blue aviator cap with pale side ear covers and matching blue jacket collar, kind curious smile. No goggles covering eyes, no weapon."
+    },
+    {
+      "key": "ponyo",
+      "角色": "波妞（金鱼）",
+      "作品": "悬崖上的金鱼姬",
+      "文件": "avatars/cinema/ponyo.png",
+      "宽度": 1254,
+      "高度": 1254,
+      "格式": "PNG / RGBA",
+      "sha256": "b89d5cfad6e88471786abfcf68ecc0d2ee7ca6a12d42b7b488513bb2de654b07",
+      "生成提示词": "Use case: stylized-concept. Asset type: one transparent desktop companion avatar icon. Create Ponyo from the animated film Ponyo on the Cliff by the Sea in her iconic magical RED GOLDFISH form: round red-orange fish body, soft cream face area, two large friendly round eyes and a small smiling mouth, short soft flowing red fins. This is a cheerful little magical goldfish, drawn as a clean hand-painted Japanese animation icon with warm cel shading and soft dark outlines. Square canvas, exactly one centered fish shown facing the viewer, round friendly face fills most of the icon, all fins contained in the canvas, 8 percent padding. Actual transparent background, no water, no scene, no props, no lettering, no logo, no watermark, no frame. Clear simple silhouette that reads well at 44px, gentle restrained details, flat two-dimensional illustration rather than 3D or photography."
+    }
+  ]
+}

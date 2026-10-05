@@ -9,6 +9,7 @@ const home=await fs.mkdtemp(path.join(os.tmpdir(),'agent-companion-native-'));
 await fs.mkdir(path.join(root,'artifacts'),{recursive:true});
 const out=await fs.mkdtemp(path.join(root,'artifacts/native-'));
 const settings=defaultSettings();
+const expanded=process.env.AGENT_COMPANION_QA_CINEMA_EXPANDED==='1'||process.env.AGENT_COMPANION_QA_DOCK==='1';
 for(const source of Object.values(settings.sources))source.enabled=false;
 settings.sources.codex.enabled=true;
 settings.notifications.desktop=false;
@@ -33,6 +34,9 @@ try {
   {hook_event_name:'UserPromptSubmit',prompt:'独立应用隔离验证'},
   {hook_event_name:'PreToolUse',tool_name:'request_user_input',tool_use_id:'q1',tool_input:{questions:[{question:'请选择下一步',options:[{label:'继续'},{label:'暂停'}]}]}}
  ])execFileSync(hook,['hook','--home',home],{input:JSON.stringify({session_id:'companion-native-fixture',turn_id:'r1',...event})});
+ if(expanded){
+  for(let index=1;index<=16;index++)execFileSync(hook,['hook','--home',home],{input:JSON.stringify({session_id:`companion-native-expanded-${index}`,turn_id:'r1',hook_event_name:'UserPromptSubmit',prompt:`角色测试 ${index}`})});
+ }
  const result=await Promise.race([exit,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('native QA timeout; build with --features diagnostics')),45000);})]);
  assert.equal(result.code,0,stderr);
  const labels=JSON.parse(await fs.readFile(path.join(out,'windows.json')));
@@ -40,8 +44,36 @@ try {
  assert.equal(JSON.parse(await fs.readFile(path.join(out,'unsupported-view.json'))),'未知视图');
  const rail=JSON.parse(await fs.readFile(path.join(out,'agent-studio-rail/report.json')));
  const preferences=JSON.parse(await fs.readFile(path.join(out,'agent-studio-settings/report.json')));
- assert.equal(rail.avatars,1);assert.equal(rail.wait,1);assert.match(rail.text,/请选择下一步/); // The native Codex adapter carries the question text from tool_input.
+ assert.equal(rail.avatars,expanded?17:1);assert.equal(rail.wait,1);if(!expanded)assert.match(rail.text,/请选择下一步/); // The native Codex adapter carries the question text from tool_input.
+ if(process.env.AGENT_COMPANION_QA_DOCK==='1'){
+  assert.equal(rail.dock?.passed,true,JSON.stringify(rail.dock));assert(rail.dock.checks.length>=20);
+  const regions=JSON.parse(await fs.readFile(path.join(out,'native-hit-regions.json')));
+  const edge=rail.dock.finalEdge;
+  assert(regions.some(region=>region.cursor==='pointer' && edge.x>=region.x && edge.x<=region.x+region.width && edge.y>=region.y && edge.y<=region.y+region.height),'macOS receives the enlarged clickable outer edge');
+ }
  assert.equal(rail.connection,'connected');assert.equal(preferences.settingsReady,true);
+ assert.match(preferences.text,/动画电影伙伴/,'native settings offer character portraits');
+ assert.equal(preferences.cinemaImages.length,4,'representative character previews are rendered');
+ if(preferences.selectedAvatarStyle==='cinema'){assert.equal(preferences.cinemaGallery.length,17);assert.equal(new Set(preferences.cinemaGallery).size,17);assert(preferences.cinemaGallery.includes('宗介'));assert(preferences.cinemaGallery.includes('波妞（人形）'));}
+ if(process.env.AGENT_COMPANION_QA_CINEMA==='1'||process.env.AGENT_COMPANION_QA_DOCK==='1'){
+  // Dock QA changes the rail temporarily; the settings page still shows saved preferences.
+  if(process.env.AGENT_COMPANION_QA_DOCK!=='1')assert.equal(preferences.selectedAvatarStyle,'cinema');
+  assert(rail.portraitStyles.every(style=>style==='cinema'));
+  assert.equal(rail.cinemaImages.length,rail.avatars);
+  if(expanded){assert.equal(new Set(rail.cinemaImages.map(image=>image.href)).size,17);assert(rail.cinemaImages.some(image=>image.href==='/avatars/cinema/sosuke.png'));assert(rail.cinemaImages.some(image=>image.href==='/avatars/cinema/ponyo-human.png'));}
+  assert(rail.cinemaImages.every(image=>/^\/avatars\/cinema\/[a-z-]+\.png$/.test(image.href)));
+  assert(rail.cinemaImages[0].width>20 && rail.cinemaImages[0].height>20);
+ }
+ assert.match(preferences.text,/彩色小怪兽/,'native settings offer local Critters avatars');
+ assert.equal(preferences.critterIdsUnique,true,'inline preview IDs are unique');
+ assert.equal(preferences.critterReferencesValid,true,'preview references resolve inside their own portrait');
+ if(process.env.AGENT_COMPANION_QA_CRITTERS==='1'){
+  assert.equal(preferences.selectedAvatarStyle,'critters','the chosen style survives a native restart');
+  assert.deepEqual(rail.portraitStyles,['critters']);
+  assert.deepEqual(rail.critterExpressions,[{state:'wait',eyes:true,mouth:true}]);
+  assert.equal(rail.critterIdsUnique,true);assert.equal(rail.critterReferencesValid,true);
+ }
+
  assert.match(preferences.text,/监听与接入/,'real WebView renders integration management');
  assert.match(preferences.text,/已接入/,'native integration RPC reports installed status while details are collapsed');
  assert(!/接入状态响应无效|不支持的命令|当前运行环境不支持接入管理/.test(preferences.text),'native integration bridge is supported');

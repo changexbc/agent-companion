@@ -42,13 +42,13 @@ test('fixed source seats, discovery switch and retention control session assignm
  assert.deepEqual(assignSessions(['a'],[{...sessions[0],status:'done',endedAt:1}],2000,1,new Map(),new Set(),{retentionHours:0}),[null]);
 });
 
-test('avatar style defaults migrate, both styles persist, invalid style preserves saved settings',async()=>{
+test('avatar style defaults migrate, all styles persist, invalid style preserves saved settings',async()=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'avatar-settings-'));
  try {
   const file=path.join(dir,'settings.json'),old=defaultSettings();delete old.monitor.avatarStyle;
   await fs.writeFile(file,JSON.stringify(old));const store=createSettingsStore(file);await store.load();
   assert.equal(store.value.monitor.avatarStyle,'animal');
-  for(const style of ['bot','animal']){const next=store.value;next.monitor.avatarStyle=style;await store.save(next);const reload=createSettingsStore(file);await reload.load();assert.equal(reload.value.monitor.avatarStyle,style);}
+  for(const style of ['bot','critters','cinema','animal']){const next=store.value;next.monitor.avatarStyle=style;await store.save(next);const reload=createSettingsStore(file);await reload.load();assert.equal(reload.value.monitor.avatarStyle,style);}
   const invalid=store.value;invalid.monitor.avatarStyle='other';await assert.rejects(store.save(invalid));assert.equal(store.value.monitor.avatarStyle,'animal');
  } finally {await fs.rm(dir,{recursive:true,force:true});}
 });
